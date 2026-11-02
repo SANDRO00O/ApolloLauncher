@@ -399,11 +399,9 @@ public class MainActivity extends Activity {
         appSectionLabel.setSingleLine(true);
         appSectionLabel.setMaxWidth(dp(132));
         FrameLayout.LayoutParams sectionParams = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(28),
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(42),
                 Gravity.START | Gravity.CENTER_VERTICAL);
         heading.addView(appSectionLabel, sectionParams);
-        dock.addView(heading, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(30)));
 
         selectedTitle = new TextView(this);
         selectedTitle.setTextColor(Color.WHITE);
@@ -414,11 +412,13 @@ public class MainActivity extends Activity {
         selectedTitle.setIncludeFontPadding(true);
         selectedTitle.setSingleLine(true);
         selectedTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        selectedTitle.setPadding(dp(12), dp(2), dp(12), dp(2));
-        LinearLayout.LayoutParams selectedTitleParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
-        selectedTitleParams.bottomMargin = dp(2);
-        dock.addView(selectedTitle, selectedTitleParams);
+        // Symmetric side insets keep the title truly centred without colliding with YOUR APPS.
+        selectedTitle.setPadding(dp(136), 0, dp(136), 0);
+        FrameLayout.LayoutParams selectedTitleParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, dp(44), Gravity.CENTER);
+        heading.addView(selectedTitle, selectedTitleParams);
+        dock.addView(heading, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
 
         appsRow = new LinearLayout(this);
         appsRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -796,19 +796,20 @@ public class MainActivity extends Activity {
 
     private Drawable menuPanelBackground() {
         GradientDrawable background = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{0xF01A2541, 0xF0161B30, 0xF00E1425});
-        background.setCornerRadius(dp(26));
-        background.setStroke(dp(1), 0x6696B5E8);
+                new int[]{0xF01B202C, 0xF0131823});
+        background.setCornerRadius(dp(18));
+        background.setStroke(dp(1), 0x99FFFFFF);
         return background;
     }
 
     private Drawable menuRowBackground(boolean focused) {
-        GradientDrawable background = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+        GradientDrawable background = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
                 focused
-                        ? new int[]{0x4A789BD2, 0x2D5479B5}
-                        : new int[]{0x1EFFFFFF, 0x12FFFFFF});
-        background.setCornerRadius(dp(16));
-        background.setStroke(dp(1), focused ? 0xC0B9D2FF : 0x2EFFFFFF);
+                        ? new int[]{0x303F6594, 0x303F6594}
+                        : new int[]{0x08000000, 0x08000000});
+        background.setCornerRadius(dp(11));
+        background.setStroke(dp(1), focused ? 0xBBD2E8FF : 0x24FFFFFF);
         return background;
     }
 
@@ -821,9 +822,9 @@ public class MainActivity extends Activity {
 
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(22), dp(20), dp(22), dp(16));
+        panel.setPadding(dp(16), dp(14), dp(16), dp(12));
         panel.setBackground(menuPanelBackground());
-        panel.setElevation(dp(20));
+        panel.setElevation(dp(10));
         panel.setClipChildren(false);
         panel.setClipToPadding(false);
 
@@ -831,34 +832,23 @@ public class MainActivity extends Activity {
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
 
-        FrameLayout iconPlate = new FrameLayout(this);
-        iconPlate.setBackground(roundRect(0x287FA4E8, 0x557FA4E8, 16));
         LineIcon headerGlyph = new LineIcon(this, headerIcon);
-        iconPlate.addView(headerGlyph, new FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER));
-        header.addView(iconPlate, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        headerGlyph.setAlpha(0.85f);
+        LinearLayout.LayoutParams headerIconParams = new LinearLayout.LayoutParams(dp(22), dp(22));
+        headerIconParams.rightMargin = dp(10);
+        header.addView(headerGlyph, headerIconParams);
 
         LinearLayout headingText = new LinearLayout(this);
         headingText.setOrientation(LinearLayout.VERTICAL);
         headingText.setGravity(isArabicLocale() ? Gravity.RIGHT : Gravity.LEFT);
         LinearLayout.LayoutParams headingTextParams = new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        headingTextParams.leftMargin = dp(14);
-        headingTextParams.rightMargin = dp(14);
-
-        TextView eyebrow = new TextView(this);
-        eyebrow.setText(text("TV LAUNCHER  /  MENU", "واجهة التلفاز  /  القائمة"));
-        eyebrow.setTextColor(0xFFA7BDE5);
-        eyebrow.setTypeface(latinTypeface);
-        eyebrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9);
-        eyebrow.setLetterSpacing(0.12f);
-        eyebrow.setIncludeFontPadding(false);
-        headingText.addView(eyebrow);
 
         TextView headingTitle = new TextView(this);
         headingTitle.setText(formatDigits(title));
         headingTitle.setTextColor(Color.WHITE);
         headingTitle.setTypeface(typefaceFor(title));
-        headingTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
+        headingTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
         headingTitle.setIncludeFontPadding(true);
         headingTitle.setSingleLine(true);
         headingTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -866,56 +856,59 @@ public class MainActivity extends Activity {
 
         TextView headingSubtitle = new TextView(this);
         headingSubtitle.setText(formatDigits(subtitle));
-        headingSubtitle.setTextColor(0xBFFFFFFF);
+        headingSubtitle.setTextColor(0xB8FFFFFF);
         headingSubtitle.setTypeface(typefaceFor(subtitle));
-        headingSubtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        headingSubtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
         headingSubtitle.setIncludeFontPadding(false);
-        headingText.addView(headingSubtitle);
-
+        headingSubtitle.setSingleLine(true);
+        headingSubtitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        subtitleParams.topMargin = dp(2);
+        headingText.addView(headingSubtitle, subtitleParams);
         header.addView(headingText, headingTextParams);
 
         final TextView closeGlyph = new TextView(this);
         closeGlyph.setText("×");
         closeGlyph.setTextColor(0xFFEAF1FF);
         closeGlyph.setTypeface(clockTypeface);
-        closeGlyph.setTextSize(TypedValue.COMPLEX_UNIT_SP, 27);
+        closeGlyph.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
         closeGlyph.setGravity(Gravity.CENTER);
-        closeGlyph.setBackground(roundRect(0x22FFFFFF, 0x3CFFFFFF, 14));
+        closeGlyph.setBackground(roundRect(0x10FFFFFF, 0x44FFFFFF, 10));
         closeGlyph.setFocusable(true);
         closeGlyph.setClickable(true);
         closeGlyph.setContentDescription(text("Close menu", "إغلاق القائمة"));
         closeGlyph.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override public void onFocusChange(View view, boolean focused) {
-                view.setBackground(roundRect(focused ? 0x55FFFFFF : 0x22FFFFFF,
-                        focused ? 0xBFFFFFFF : 0x3CFFFFFF, 14));
+                view.setBackground(roundRect(focused ? 0x2AFFFFFF : 0x10FFFFFF,
+                        focused ? 0xCCFFFFFF : 0x44FFFFFF, 10));
             }
         });
         closeGlyph.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View view) { dialog.dismiss(); }
         });
-        header.addView(closeGlyph, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(34), dp(34));
+        closeParams.leftMargin = dp(10);
+        header.addView(closeGlyph, closeParams);
         panel.addView(header);
 
         View divider = new View(this);
-        divider.setBackgroundColor(0x30FFFFFF);
+        divider.setBackgroundColor(0x55FFFFFF);
         LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
-        dividerParams.topMargin = dp(16);
-        dividerParams.bottomMargin = dp(10);
+        dividerParams.topMargin = dp(11);
+        dividerParams.bottomMargin = dp(7);
         panel.addView(divider, dividerParams);
 
         LinearLayout optionList = new LinearLayout(this);
         optionList.setOrientation(LinearLayout.VERTICAL);
-        optionList.setPadding(dp(4), dp(4), dp(4), dp(4));
+        optionList.setPadding(dp(1), dp(1), dp(1), dp(1));
         optionList.setClipChildren(false);
         optionList.setClipToPadding(false);
-
-        for (MenuOption entry : entries) {
-            addOptionRow(optionList, dialog, entry);
-        }
+        for (MenuOption entry : entries) addOptionRow(optionList, dialog, entry);
 
         BoundedScrollView scroll = new BoundedScrollView(this,
-                dp(Math.min(400, Math.max(150, screenHeightDp() * 0.58f))));
+                dp(Math.min(380, Math.max(140, screenHeightDp() * 0.55f))));
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setFillViewport(false);
         scroll.setClipChildren(true);
@@ -925,45 +918,11 @@ public class MainActivity extends Activity {
         panel.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        View footerDivider = new View(this);
-        footerDivider.setBackgroundColor(0x24FFFFFF);
-        LinearLayout.LayoutParams footerDividerParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
-        footerDividerParams.topMargin = dp(10);
-        footerDividerParams.bottomMargin = dp(12);
-        panel.addView(footerDivider, footerDividerParams);
-
-        LinearLayout footer = new LinearLayout(this);
-        footer.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        TextView closeButton = new TextView(this);
-        closeButton.setText(text("CLOSE", "إغلاق"));
-        closeButton.setTextColor(0xFFE8EEFC);
-        closeButton.setTypeface(typefaceFor(text("CLOSE", "إغلاق")));
-        closeButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        closeButton.setLetterSpacing(0.08f);
-        closeButton.setGravity(Gravity.CENTER);
-        closeButton.setPadding(dp(22), 0, dp(22), 0);
-        closeButton.setBackground(roundRect(0x287FA4E8, 0x667FA4E8, 18));
-        closeButton.setFocusable(true);
-        closeButton.setClickable(true);
-        closeButton.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-            @Override public void onFocusChange(View view, boolean focused) {
-                view.setBackground(roundRect(focused ? 0x5586A9E8 : 0x287FA4E8,
-                        focused ? 0xD0C9DCFF : 0x667FA4E8, 18));
-            }
-        });
-        closeButton.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View view) { dialog.dismiss(); }
-        });
-        footer.addView(closeButton, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)));
-        panel.addView(footer);
-
         dialog.setContentView(panel);
         dialog.setOnShowListener(new android.content.DialogInterface.OnShowListener() {
             @Override public void onShow(android.content.DialogInterface ignored) {
                 if (optionList.getChildCount() > 0) optionList.getChildAt(0).requestFocus();
-                else closeButton.requestFocus();
+                else closeGlyph.requestFocus();
             }
         });
         dialog.show();
@@ -973,11 +932,11 @@ public class MainActivity extends Activity {
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams params = window.getAttributes();
-            params.width = Math.min(dp(720),
-                    (int)(getResources().getDisplayMetrics().widthPixels * 0.72f));
+            params.width = Math.min(dp(560),
+                    (int)(getResources().getDisplayMetrics().widthPixels * 0.64f));
             params.height = WindowManager.LayoutParams.WRAP_CONTENT;
             params.gravity = Gravity.CENTER;
-            params.dimAmount = 0.68f;
+            params.dimAmount = 0.55f;
             window.setAttributes(params);
         }
         if (optionList.getChildCount() > 0) optionList.getChildAt(0).requestFocus();
@@ -988,33 +947,30 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(14), dp(10), dp(14), dp(10));
+        row.setPadding(dp(12), dp(7), dp(12), dp(7));
         row.setBackground(menuRowBackground(false));
         row.setFocusable(true);
         row.setClickable(true);
-        row.setMinimumHeight(dp(68));
+        row.setMinimumHeight(dp(56));
         row.setClipChildren(false);
         row.setClipToPadding(false);
 
-        FrameLayout iconPlate = new FrameLayout(this);
-        iconPlate.setBackground(roundRect(0x24FFFFFF, 0x30FFFFFF, 13));
         LineIcon icon = new LineIcon(this, option.iconKind);
-        iconPlate.addView(icon, new FrameLayout.LayoutParams(dp(23), dp(23), Gravity.CENTER));
-        row.addView(iconPlate, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(23), dp(23));
+        iconParams.rightMargin = dp(12);
+        row.addView(icon, iconParams);
 
         LinearLayout labels = new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
         labels.setGravity(isArabicLocale() ? Gravity.RIGHT : Gravity.LEFT);
         LinearLayout.LayoutParams labelsParams = new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        labelsParams.leftMargin = dp(13);
-        labelsParams.rightMargin = dp(13);
 
         TextView primary = new TextView(this);
         primary.setText(formatDigits(option.title));
         primary.setTextColor(Color.WHITE);
         primary.setTypeface(typefaceFor(option.title));
-        primary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        primary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         primary.setIncludeFontPadding(true);
         primary.setSingleLine(true);
         primary.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -1023,7 +979,7 @@ public class MainActivity extends Activity {
         if (option.subtitle != null && option.subtitle.length() > 0) {
             TextView secondary = new TextView(this);
             secondary.setText(formatDigits(option.subtitle));
-            secondary.setTextColor(0xBFFFFFFF);
+            secondary.setTextColor(0xB0FFFFFF);
             secondary.setTypeface(typefaceFor(option.subtitle));
             secondary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
             secondary.setIncludeFontPadding(false);
@@ -1033,12 +989,9 @@ public class MainActivity extends Activity {
         }
         row.addView(labels, labelsParams);
 
-        final Drawable normalIconBackground = roundRect(0x24FFFFFF, 0x30FFFFFF, 13);
-        final Drawable focusedIconBackground = roundRect(0x4886A9E8, 0x887FA4E8, 13);
         row.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override public void onFocusChange(View view, boolean focused) {
                 view.setBackground(menuRowBackground(focused));
-                iconPlate.setBackground(focused ? focusedIconBackground : normalIconBackground);
             }
         });
         row.setOnClickListener(new View.OnClickListener() {
@@ -1050,7 +1003,7 @@ public class MainActivity extends Activity {
 
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rowParams.setMargins(0, dp(4), 0, dp(4));
+        rowParams.setMargins(0, dp(3), 0, dp(3));
         container.addView(row, rowParams);
     }
 
@@ -1614,7 +1567,7 @@ public class MainActivity extends Activity {
 
     private File backdropCacheFile(String key) {
         String safeName = key == null ? "unknown" : key.replaceAll("[^A-Za-z0-9._-]", "_");
-        File directory = new File(getCacheDir(), "dreamy_backdrops");
+        File directory = new File(getCacheDir(), "dreamy_backdrops_dark");
         if (!directory.exists()) directory.mkdirs();
         return new File(directory, safeName + ".png");
     }
@@ -1665,12 +1618,12 @@ public class MainActivity extends Activity {
         Bitmap bitmap = Bitmap.createBitmap(BACKDROP_WIDTH, BACKDROP_HEIGHT, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
 
-        int darkA = darken(palette[0], 0.24f);
-        int darkB = darken(palette[1], 0.20f);
-        int darkC = darken(palette[2], 0.25f);
+        int darkA = darken(palette[0], 0.11f);
+        int darkB = darken(palette[1], 0.10f);
+        int darkC = darken(palette[2], 0.12f);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         paint.setShader(new LinearGradient(0, 0, BACKDROP_WIDTH, BACKDROP_HEIGHT,
-                new int[]{darkA, 0xFF101326, darkB, darkC},
+                new int[]{darkA, 0xFF080B14, darkB, darkC},
                 new float[]{0f, 0.38f, 0.72f, 1f}, Shader.TileMode.CLAMP));
         canvas.drawRect(0, 0, BACKDROP_WIDTH, BACKDROP_HEIGHT, paint);
 
@@ -1684,7 +1637,7 @@ public class MainActivity extends Activity {
                 BACKDROP_HEIGHT * 0.88f, BACKDROP_WIDTH * 0.56f);
 
         paint.setShader(new LinearGradient(0, 0, 0, BACKDROP_HEIGHT,
-                new int[]{0x12000000, 0x00000000, 0x55040A18},
+                new int[]{0x26000000, 0x18000000, 0x88020711},
                 null, Shader.TileMode.CLAMP));
         canvas.drawRect(0, 0, BACKDROP_WIDTH, BACKDROP_HEIGHT, paint);
         paint.setShader(null);
@@ -1694,7 +1647,7 @@ public class MainActivity extends Activity {
     private void drawColorGlow(Canvas canvas, int color, float centerX, float centerY, float radius) {
         Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
         glow.setShader(new RadialGradient(centerX, centerY, radius,
-                new int[]{withAlpha(color, 190), withAlpha(color, 88), withAlpha(color, 0)},
+                new int[]{withAlpha(color, 118), withAlpha(color, 46), withAlpha(color, 0)},
                 new float[]{0f, 0.42f, 1f}, Shader.TileMode.CLAMP));
         canvas.drawRect(0, 0, BACKDROP_WIDTH, BACKDROP_HEIGHT, glow);
         glow.setShader(null);
