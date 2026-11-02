@@ -416,12 +416,12 @@ public class MainActivity extends Activity {
         selectedTitle.setIncludeFontPadding(true);
         selectedTitle.setSingleLine(true);
         selectedTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        selectedTitle.setPadding(dp(124), 0, dp(124), 0);
+        selectedTitle.setPadding(dp(12), 0, dp(12), 0);
         FrameLayout.LayoutParams selectedTitleParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, dp(44), Gravity.CENTER);
         heading.addView(selectedTitle, selectedTitleParams);
         dock.addView(heading, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));        dock.addView(heading);
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
 
         appsRow = new LinearLayout(this);
         appsRow.setOrientation(LinearLayout.HORIZONTAL);
