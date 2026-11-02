@@ -39,10 +39,6 @@ import android.text.format.DateFormat;
 import android.text.style.MetricAffectingSpan;
 import android.view.KeyEvent;
 import android.widget.ScrollView;
-import android.renderscript.Allocation;
-import android.renderscript.Element;
-import android.renderscript.RenderScript;
-import android.renderscript.ScriptIntrinsicBlur;
 import android.util.LruCache;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -403,9 +399,11 @@ public class MainActivity extends Activity {
         appSectionLabel.setSingleLine(true);
         appSectionLabel.setMaxWidth(dp(132));
         FrameLayout.LayoutParams sectionParams = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(42),
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(28),
                 Gravity.START | Gravity.CENTER_VERTICAL);
         heading.addView(appSectionLabel, sectionParams);
+        dock.addView(heading, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(30)));
 
         selectedTitle = new TextView(this);
         selectedTitle.setTextColor(Color.WHITE);
@@ -416,12 +414,11 @@ public class MainActivity extends Activity {
         selectedTitle.setIncludeFontPadding(true);
         selectedTitle.setSingleLine(true);
         selectedTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        selectedTitle.setPadding(dp(12), 0, dp(12), 0);
-        FrameLayout.LayoutParams selectedTitleParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, dp(44), Gravity.CENTER);
-        heading.addView(selectedTitle, selectedTitleParams);
-        dock.addView(heading, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+        selectedTitle.setPadding(dp(12), dp(2), dp(12), dp(2));
+        LinearLayout.LayoutParams selectedTitleParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
+        selectedTitleParams.bottomMargin = dp(2);
+        dock.addView(selectedTitle, selectedTitleParams);
 
         appsRow = new LinearLayout(this);
         appsRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -1546,58 +1543,73 @@ public class MainActivity extends Activity {
 
     private void updateDynamicWallpaper(final Item item) {
         String mode = preferences.getString(PREF_WALLPAPER_MODE, "dynamic");
-        if (!"dynamic".equals(mode)) return;
+        if (!"dynamic".equals(mode) || activityDestroyed) return;
         final Drawable sourceIcon = item == null ? null : (item.icon != null ? item.icon : item.art);
         if (item == null || sourceIcon == null) return;
 
         final int request = ++blurRequest;
         final String key = item.packageName == null ? item.label : item.packageName;
-        Bitmap memoryCached = blurredBackdrops.get(key);
-        if (memoryCached != null) {
-            showBitmap(memoryCached);
-            return;
-        }
-
-        final File cacheFile = backdropCacheFile(key);
-        final Bitmap iconSnapshot = drawableToBitmap(sourceIcon, 96);
-        if (iconSnapshot == null) return;
-
-        blurExecutor.getQueue().clear();
-        blurExecutor.execute(new Runnable() {
-            @Override public void run() {
-                Bitmap backdrop = null;
-                try {
-                    if (cacheFile.isFile() && cacheFile.length() > 0) {
-                        backdrop = BitmapFactory.decodeFile(cacheFile.getAbsolutePath());
-                        if (backdrop == null) cacheFile.delete();
-                    }
-
-                    if (backdrop == null) {
-                        Bitmap gradient = makeDreamyGradient(iconSnapshot);
-                        backdrop = blurBitmap(gradient, 19.0f);
-                        if (backdrop != gradient && !gradient.isRecycled()) gradient.recycle();
-                        saveBackdropToDisk(backdrop, cacheFile);
-                    }
-
-                    if (backdrop != null) {
-                        blurredBackdrops.put(key, backdrop);
-                        final Bitmap ready = backdrop;
-                        mainHandler.post(new Runnable() {
-                            @Override public void run() {
-                                if (request == blurRequest
-                                        && "dynamic".equals(preferences.getString(PREF_WALLPAPER_MODE, "dynamic"))) {
-                                    showBitmap(ready);
-                                }
-                            }
-                        });
-                    }
-                } catch (Throwable error) {
-                    android.util.Log.w("TvLauncher", "Could not build app color backdrop", error);
-                } finally {
-                    if (!iconSnapshot.isRecycled()) iconSnapshot.recycle();
-                }
+        try {
+            Bitmap memoryCached = blurredBackdrops.get(key);
+            if (memoryCached != null && !memoryCached.isRecycled()) {
+                showBitmap(memoryCached);
+                return;
             }
-        });
+
+            final File cacheFile = backdropCacheFile(key);
+            final Bitmap iconSnapshot = drawableToBitmap(sourceIcon, 96);
+            if (iconSnapshot == null) return;
+
+            blurExecutor.getQueue().clear();
+            try {
+                blurExecutor.execute(new Runnable() {
+                    @Override public void run() {
+                        Bitmap backdrop = null;
+                        try {
+                            if (cacheFile.isFile() && cacheFile.length() > 0) {
+                                BitmapFactory.Options options = new BitmapFactory.Options();
+                                options.inPreferredConfig = Bitmap.Config.RGB_565;
+                                backdrop = BitmapFactory.decodeFile(cacheFile.getAbsolutePath(), options);
+                                if (backdrop == null) cacheFile.delete();
+                            }
+
+                            if (backdrop == null) {
+                                Bitmap gradient = makeDreamyGradient(iconSnapshot);
+                                backdrop = blurBitmap(gradient, 19.0f);
+                                saveBackdropToDisk(backdrop, cacheFile);
+                            }
+
+                            if (backdrop != null && !backdrop.isRecycled()) {
+                                blurredBackdrops.put(key, backdrop);
+                                final Bitmap ready = backdrop;
+                                mainHandler.post(new Runnable() {
+                                    @Override public void run() {
+                                        if (!activityDestroyed && request == blurRequest
+                                                && wallpaperView != null
+                                                && "dynamic".equals(preferences.getString(PREF_WALLPAPER_MODE, "dynamic"))) {
+                                            showBitmap(ready);
+                                        }
+                                    }
+                                });
+                            }
+                        } catch (OutOfMemoryError memoryError) {
+                            android.util.Log.e("TvLauncher", "Not enough memory for app backdrop", memoryError);
+                        } catch (Throwable error) {
+                            android.util.Log.e("TvLauncher", "Could not create app backdrop", error);
+                        } finally {
+                            if (!iconSnapshot.isRecycled()) iconSnapshot.recycle();
+                        }
+                    }
+                });
+            } catch (RuntimeException rejected) {
+                if (!iconSnapshot.isRecycled()) iconSnapshot.recycle();
+                android.util.Log.w("TvLauncher", "Backdrop worker is unavailable", rejected);
+            }
+        } catch (OutOfMemoryError memoryError) {
+            android.util.Log.e("TvLauncher", "Not enough memory to prepare app icon backdrop", memoryError);
+        } catch (Throwable error) {
+            android.util.Log.e("TvLauncher", "Could not prepare app icon backdrop", error);
+        }
     }
 
     private File backdropCacheFile(String key) {
@@ -1608,23 +1620,26 @@ public class MainActivity extends Activity {
     }
 
     private Bitmap drawableToBitmap(Drawable drawable, int size) {
-        if (drawable == null) return null;
+        if (drawable == null || size <= 0) return null;
+        Bitmap bitmap = null;
         Drawable render = drawable;
-        if (drawable.getConstantState() != null) {
-            try { render = drawable.getConstantState().newDrawable().mutate(); }
-            catch (Exception ignored) { render = drawable; }
+        try {
+            if (drawable.getConstantState() != null) {
+                render = drawable.getConstantState().newDrawable().mutate();
+            }
+            RectF bounds = new RectF(render.getBounds());
+            bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(bitmap);
+            render.setBounds(0, 0, size, size);
+            render.draw(canvas);
+            render.setBounds((int)bounds.left, (int)bounds.top,
+                    (int)bounds.right, (int)bounds.bottom);
+            return bitmap;
+        } catch (Throwable error) {
+            if (bitmap != null && !bitmap.isRecycled()) bitmap.recycle();
+            android.util.Log.w("TvLauncher", "Could not snapshot application icon", error);
+            return null;
         }
-
-        int oldLeft = render.getBounds().left;
-        int oldTop = render.getBounds().top;
-        int oldRight = render.getBounds().right;
-        int oldBottom = render.getBounds().bottom;
-        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-        render.setBounds(0, 0, size, size);
-        render.draw(canvas);
-        render.setBounds(oldLeft, oldTop, oldRight, oldBottom);
-        return bitmap;
     }
 
     private void saveBackdropToDisk(Bitmap bitmap, File file) {
@@ -1778,28 +1793,25 @@ public class MainActivity extends Activity {
     }
 
     private Bitmap blurBitmap(Bitmap source, float radius) {
-        RenderScript renderScript = null;
-        Allocation input = null;
-        Allocation output = null;
-        ScriptIntrinsicBlur blur = null;
+        if (source == null || source.isRecycled()) return source;
+        Bitmap reduced = null;
         try {
-            renderScript = RenderScript.create(getApplicationContext());
-            input = Allocation.createFromBitmap(renderScript, source);
-            output = Allocation.createTyped(renderScript, input.getType());
-            blur = ScriptIntrinsicBlur.create(renderScript, Element.U8_4(renderScript));
-            blur.setRadius(Math.min(25.0f, Math.max(1.0f, radius)));
-            blur.setInput(input);
-            blur.forEach(output);
-            Bitmap result = Bitmap.createBitmap(source.getWidth(), source.getHeight(), Bitmap.Config.ARGB_8888);
-            output.copyTo(result);
-            return result;
-        } catch (Throwable ignored) {
+            int width = Math.max(1, source.getWidth() / 3);
+            int height = Math.max(1, source.getHeight() / 3);
+            reduced = Bitmap.createScaledBitmap(source, width, height, true);
+            Bitmap softened = Bitmap.createScaledBitmap(reduced,
+                    source.getWidth(), source.getHeight(), true);
+            if (reduced != source && !reduced.isRecycled()) reduced.recycle();
+            if (softened != source && !source.isRecycled()) source.recycle();
+            return softened;
+        } catch (OutOfMemoryError memoryError) {
+            if (reduced != null && reduced != source && !reduced.isRecycled()) reduced.recycle();
+            android.util.Log.w("TvLauncher", "Using unsoftened gradient after low-memory fallback", memoryError);
             return source;
-        } finally {
-            try { if (blur != null) blur.destroy(); } catch (Exception ignored) { }
-            try { if (input != null) input.destroy(); } catch (Exception ignored) { }
-            try { if (output != null) output.destroy(); } catch (Exception ignored) { }
-            try { if (renderScript != null) renderScript.destroy(); } catch (Exception ignored) { }
+        } catch (RuntimeException error) {
+            if (reduced != null && reduced != source && !reduced.isRecycled()) reduced.recycle();
+            android.util.Log.w("TvLauncher", "Using unsoftened gradient after blur fallback", error);
+            return source;
         }
     }
 
