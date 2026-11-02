@@ -1,7 +1,7 @@
 package com.karrar.tvlauncher;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -48,6 +48,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
@@ -126,6 +127,20 @@ public class MainActivity extends Activity {
     private static class WeatherInfo {
         String temperature;
         String condition;
+    }
+
+    private static class MenuOption {
+        final int iconKind;
+        final String title;
+        final String subtitle;
+        final Runnable action;
+
+        MenuOption(int iconKind, String title, String subtitle, Runnable action) {
+            this.iconKind = iconKind;
+            this.title = title;
+            this.subtitle = subtitle;
+            this.action = action;
+        }
     }
 
     private float density;
@@ -375,28 +390,38 @@ public class MainActivity extends Activity {
         dock.setClipChildren(true);
         dock.setClipToPadding(true);
 
-        LinearLayout heading = new LinearLayout(this);
-        heading.setOrientation(LinearLayout.HORIZONTAL);
-        heading.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout heading = new FrameLayout(this);
+        heading.setClipChildren(false);
+        heading.setClipToPadding(false);
         appSectionLabel = new TextView(this);
         appSectionLabel.setText(text("YOUR APPS", "تطبيقاتك"));
         appSectionLabel.setTextColor(0xBFFFFFFF);
         appSectionLabel.setTypeface(typefaceFor(text("YOUR APPS", "تطبيقاتك")));
         appSectionLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         appSectionLabel.setLetterSpacing(isArabicLocale() ? 0f : 0.13f);
-        heading.addView(appSectionLabel, new LinearLayout.LayoutParams(0, dp(38), 1f));
+        appSectionLabel.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        appSectionLabel.setSingleLine(true);
+        appSectionLabel.setMaxWidth(dp(132));
+        FrameLayout.LayoutParams sectionParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(42),
+                Gravity.START | Gravity.CENTER_VERTICAL);
+        heading.addView(appSectionLabel, sectionParams);
 
         selectedTitle = new TextView(this);
         selectedTitle.setTextColor(Color.WHITE);
         selectedTitle.setTypeface(latinTypeface);
         selectedTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         selectedTitle.setGravity(Gravity.CENTER);
+        selectedTitle.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
         selectedTitle.setIncludeFontPadding(true);
         selectedTitle.setSingleLine(true);
         selectedTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        heading.addView(selectedTitle, new LinearLayout.LayoutParams(
-                0, dp(40), 1.4f));
-        dock.addView(heading);
+        selectedTitle.setPadding(dp(124), 0, dp(124), 0);
+        FrameLayout.LayoutParams selectedTitleParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, dp(44), Gravity.CENTER);
+        heading.addView(selectedTitle, selectedTitleParams);
+        dock.addView(heading, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));        dock.addView(heading);
 
         appsRow = new LinearLayout(this);
         appsRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -772,78 +797,269 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void addOptionRow(LinearLayout container, final AlertDialog dialog, int iconKind,
-                              String title, String subtitle, final Runnable action) {
+    private Drawable menuPanelBackground() {
+        GradientDrawable background = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xF01A2541, 0xF0161B30, 0xF00E1425});
+        background.setCornerRadius(dp(26));
+        background.setStroke(dp(1), 0x6696B5E8);
+        return background;
+    }
+
+    private Drawable menuRowBackground(boolean focused) {
+        GradientDrawable background = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                focused
+                        ? new int[]{0x4A789BD2, 0x2D5479B5}
+                        : new int[]{0x1EFFFFFF, 0x12FFFFFF});
+        background.setCornerRadius(dp(16));
+        background.setStroke(dp(1), focused ? 0xC0B9D2FF : 0x2EFFFFFF);
+        return background;
+    }
+
+    private void showLauncherMenu(String title, String subtitle, int headerIcon,
+                                  List<MenuOption> entries) {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setCancelable(true);
+        dialog.setCanceledOnTouchOutside(true);
+
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(22), dp(20), dp(22), dp(16));
+        panel.setBackground(menuPanelBackground());
+        panel.setElevation(dp(20));
+        panel.setClipChildren(false);
+        panel.setClipToPadding(false);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+
+        FrameLayout iconPlate = new FrameLayout(this);
+        iconPlate.setBackground(roundRect(0x287FA4E8, 0x557FA4E8, 16));
+        LineIcon headerGlyph = new LineIcon(this, headerIcon);
+        iconPlate.addView(headerGlyph, new FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER));
+        header.addView(iconPlate, new LinearLayout.LayoutParams(dp(48), dp(48)));
+
+        LinearLayout headingText = new LinearLayout(this);
+        headingText.setOrientation(LinearLayout.VERTICAL);
+        headingText.setGravity(isArabicLocale() ? Gravity.RIGHT : Gravity.LEFT);
+        LinearLayout.LayoutParams headingTextParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        headingTextParams.leftMargin = dp(14);
+        headingTextParams.rightMargin = dp(14);
+
+        TextView eyebrow = new TextView(this);
+        eyebrow.setText(text("TV LAUNCHER  /  MENU", "واجهة التلفاز  /  القائمة"));
+        eyebrow.setTextColor(0xFFA7BDE5);
+        eyebrow.setTypeface(latinTypeface);
+        eyebrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9);
+        eyebrow.setLetterSpacing(0.12f);
+        eyebrow.setIncludeFontPadding(false);
+        headingText.addView(eyebrow);
+
+        TextView headingTitle = new TextView(this);
+        headingTitle.setText(formatDigits(title));
+        headingTitle.setTextColor(Color.WHITE);
+        headingTitle.setTypeface(typefaceFor(title));
+        headingTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
+        headingTitle.setIncludeFontPadding(true);
+        headingTitle.setSingleLine(true);
+        headingTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        headingText.addView(headingTitle);
+
+        TextView headingSubtitle = new TextView(this);
+        headingSubtitle.setText(formatDigits(subtitle));
+        headingSubtitle.setTextColor(0xBFFFFFFF);
+        headingSubtitle.setTypeface(typefaceFor(subtitle));
+        headingSubtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        headingSubtitle.setIncludeFontPadding(false);
+        headingText.addView(headingSubtitle);
+
+        header.addView(headingText, headingTextParams);
+
+        final TextView closeGlyph = new TextView(this);
+        closeGlyph.setText("×");
+        closeGlyph.setTextColor(0xFFEAF1FF);
+        closeGlyph.setTypeface(clockTypeface);
+        closeGlyph.setTextSize(TypedValue.COMPLEX_UNIT_SP, 27);
+        closeGlyph.setGravity(Gravity.CENTER);
+        closeGlyph.setBackground(roundRect(0x22FFFFFF, 0x3CFFFFFF, 14));
+        closeGlyph.setFocusable(true);
+        closeGlyph.setClickable(true);
+        closeGlyph.setContentDescription(text("Close menu", "إغلاق القائمة"));
+        closeGlyph.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override public void onFocusChange(View view, boolean focused) {
+                view.setBackground(roundRect(focused ? 0x55FFFFFF : 0x22FFFFFF,
+                        focused ? 0xBFFFFFFF : 0x3CFFFFFF, 14));
+            }
+        });
+        closeGlyph.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) { dialog.dismiss(); }
+        });
+        header.addView(closeGlyph, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        panel.addView(header);
+
+        View divider = new View(this);
+        divider.setBackgroundColor(0x30FFFFFF);
+        LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+        dividerParams.topMargin = dp(16);
+        dividerParams.bottomMargin = dp(10);
+        panel.addView(divider, dividerParams);
+
+        LinearLayout optionList = new LinearLayout(this);
+        optionList.setOrientation(LinearLayout.VERTICAL);
+        optionList.setPadding(dp(4), dp(4), dp(4), dp(4));
+        optionList.setClipChildren(false);
+        optionList.setClipToPadding(false);
+
+        for (MenuOption entry : entries) {
+            addOptionRow(optionList, dialog, entry);
+        }
+
+        BoundedScrollView scroll = new BoundedScrollView(this,
+                dp(Math.min(400, Math.max(150, screenHeightDp() * 0.58f))));
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setFillViewport(false);
+        scroll.setClipChildren(true);
+        scroll.setClipToPadding(true);
+        scroll.addView(optionList, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        panel.addView(scroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        View footerDivider = new View(this);
+        footerDivider.setBackgroundColor(0x24FFFFFF);
+        LinearLayout.LayoutParams footerDividerParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+        footerDividerParams.topMargin = dp(10);
+        footerDividerParams.bottomMargin = dp(12);
+        panel.addView(footerDivider, footerDividerParams);
+
+        LinearLayout footer = new LinearLayout(this);
+        footer.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        TextView closeButton = new TextView(this);
+        closeButton.setText(text("CLOSE", "إغلاق"));
+        closeButton.setTextColor(0xFFE8EEFC);
+        closeButton.setTypeface(typefaceFor(text("CLOSE", "إغلاق")));
+        closeButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        closeButton.setLetterSpacing(0.08f);
+        closeButton.setGravity(Gravity.CENTER);
+        closeButton.setPadding(dp(22), 0, dp(22), 0);
+        closeButton.setBackground(roundRect(0x287FA4E8, 0x667FA4E8, 18));
+        closeButton.setFocusable(true);
+        closeButton.setClickable(true);
+        closeButton.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override public void onFocusChange(View view, boolean focused) {
+                view.setBackground(roundRect(focused ? 0x5586A9E8 : 0x287FA4E8,
+                        focused ? 0xD0C9DCFF : 0x667FA4E8, 18));
+            }
+        });
+        closeButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) { dialog.dismiss(); }
+        });
+        footer.addView(closeButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)));
+        panel.addView(footer);
+
+        dialog.setContentView(panel);
+        dialog.setOnShowListener(new android.content.DialogInterface.OnShowListener() {
+            @Override public void onShow(android.content.DialogInterface ignored) {
+                if (optionList.getChildCount() > 0) optionList.getChildAt(0).requestFocus();
+                else closeButton.requestFocus();
+            }
+        });
+        dialog.show();
+
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams params = window.getAttributes();
+            params.width = Math.min(dp(720),
+                    (int)(getResources().getDisplayMetrics().widthPixels * 0.72f));
+            params.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            params.gravity = Gravity.CENTER;
+            params.dimAmount = 0.68f;
+            window.setAttributes(params);
+        }
+        if (optionList.getChildCount() > 0) optionList.getChildAt(0).requestFocus();
+    }
+
+    private void addOptionRow(LinearLayout container, final Dialog dialog,
+                              final MenuOption option) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(14), dp(8), dp(14), dp(8));
-        row.setBackground(roundRect(0x18FFFFFF, 0x24FFFFFF, 14));
+        row.setPadding(dp(14), dp(10), dp(14), dp(10));
+        row.setBackground(menuRowBackground(false));
         row.setFocusable(true);
         row.setClickable(true);
-        row.setMinimumHeight(dp(58));
+        row.setMinimumHeight(dp(68));
         row.setClipChildren(false);
         row.setClipToPadding(false);
 
-        LineIcon icon = new LineIcon(this, iconKind);
-        row.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        FrameLayout iconPlate = new FrameLayout(this);
+        iconPlate.setBackground(roundRect(0x24FFFFFF, 0x30FFFFFF, 13));
+        LineIcon icon = new LineIcon(this, option.iconKind);
+        iconPlate.addView(icon, new FrameLayout.LayoutParams(dp(23), dp(23), Gravity.CENTER));
+        row.addView(iconPlate, new LinearLayout.LayoutParams(dp(42), dp(42)));
 
         LinearLayout labels = new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
         labels.setGravity(isArabicLocale() ? Gravity.RIGHT : Gravity.LEFT);
         LinearLayout.LayoutParams labelsParams = new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        labelsParams.leftMargin = dp(12);
-        labelsParams.rightMargin = dp(12);
+        labelsParams.leftMargin = dp(13);
+        labelsParams.rightMargin = dp(13);
+
         TextView primary = new TextView(this);
-        primary.setText(formatDigits(title));
+        primary.setText(formatDigits(option.title));
         primary.setTextColor(Color.WHITE);
-        primary.setTypeface(typefaceFor(title));
+        primary.setTypeface(typefaceFor(option.title));
         primary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        primary.setIncludeFontPadding(false);
+        primary.setIncludeFontPadding(true);
+        primary.setSingleLine(true);
+        primary.setEllipsize(android.text.TextUtils.TruncateAt.END);
         labels.addView(primary);
-        TextView secondary = new TextView(this);
-        secondary.setText(formatDigits(subtitle));
-        secondary.setTextColor(0xBFFFFFFF);
-        secondary.setTypeface(typefaceFor(subtitle));
-        secondary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
-        secondary.setIncludeFontPadding(false);
-        labels.addView(secondary);
+
+        if (option.subtitle != null && option.subtitle.length() > 0) {
+            TextView secondary = new TextView(this);
+            secondary.setText(formatDigits(option.subtitle));
+            secondary.setTextColor(0xBFFFFFFF);
+            secondary.setTypeface(typefaceFor(option.subtitle));
+            secondary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+            secondary.setIncludeFontPadding(false);
+            secondary.setSingleLine(true);
+            secondary.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            labels.addView(secondary);
+        }
         row.addView(labels, labelsParams);
 
+        final Drawable normalIconBackground = roundRect(0x24FFFFFF, 0x30FFFFFF, 13);
+        final Drawable focusedIconBackground = roundRect(0x4886A9E8, 0x887FA4E8, 13);
         row.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override public void onFocusChange(View view, boolean focused) {
-                view.setBackground(roundRect(focused ? 0x42FFFFFF : 0x18FFFFFF,
-                        focused ? 0xAFFFFFFF : 0x24FFFFFF, 14));
-                // Focus is shown by the background only; no scaling outside the dialog bounds.
-
+                view.setBackground(menuRowBackground(focused));
+                iconPlate.setBackground(focused ? focusedIconBackground : normalIconBackground);
             }
         });
         row.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View view) {
                 dialog.dismiss();
-                action.run();
+                if (option.action != null) option.action.run();
             }
         });
+
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rowParams.setMargins(dp(4), dp(5), dp(4), dp(5));
+        rowParams.setMargins(0, dp(4), 0, dp(4));
         container.addView(row, rowParams);
     }
 
     private void showAppOptions(final Item item) {
-        final AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(formatDigits(item.label))
-                .setNegativeButton(text("Close", "إغلاق"), null)
-                .create();
-
-        LinearLayout options = new LinearLayout(this);
-        options.setOrientation(LinearLayout.VERTICAL);
-        options.setPadding(dp(8), dp(4), dp(8), dp(4));
-        options.setClipChildren(false);
-        options.setClipToPadding(false);
-
-        addOptionRow(options, dialog, 9,
+        List<MenuOption> entries = new ArrayList<MenuOption>();
+        entries.add(new MenuOption(9,
                 text("Hide app", "إخفاء التطبيق"),
                 text("Remove it from this launcher", "إزالته من هذه الواجهة"),
                 new Runnable() {
@@ -852,34 +1068,27 @@ public class MainActivity extends Activity {
                         Toast.makeText(MainActivity.this,
                                 text("App hidden", "تم إخفاء التطبيق"), Toast.LENGTH_SHORT).show();
                     }
-                });
+                }));
 
         if (!isSystemApp(item.packageName)) {
-            addOptionRow(options, dialog, 10,
+            entries.add(new MenuOption(10,
                     text("Uninstall app", "إلغاء تثبيت التطبيق"),
                     text("Android will ask you to confirm", "سيطلب Android تأكيد العملية"),
                     new Runnable() {
                         @Override public void run() { uninstallApp(item.packageName); }
-                    });
+                    }));
         }
 
-        addOptionRow(options, dialog, 11,
+        entries.add(new MenuOption(11,
                 text("Force stop / background", "إيقاف التطبيق / الخلفية"),
                 text("Open Android app settings", "فتح إعدادات التطبيق لإيقافه"),
                 new Runnable() {
                     @Override public void run() { openAppSettings(item.packageName); }
-                });
+                }));
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setVerticalScrollBarEnabled(false);
-        scroll.setClipChildren(true);
-        scroll.setClipToPadding(true);
-        scroll.setPadding(dp(6), dp(4), dp(6), dp(8));
-        scroll.addView(options);
-        dialog.setView(scroll);
-        dialog.show();
-        options.getChildAt(0).requestFocus();
+        showLauncherMenu(item.label,
+                text("APPLICATION OPTIONS", "خيارات التطبيق"),
+                8, entries);
     }
 
     private void showHiddenAppsDialog() {
@@ -890,18 +1099,11 @@ public class MainActivity extends Activity {
             return;
         }
 
-        final AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(text("Hidden apps", "التطبيقات المخفية"))
-                .setNegativeButton(text("Close", "إغلاق"), null)
-                .create();
-        LinearLayout options = new LinearLayout(this);
-        options.setOrientation(LinearLayout.VERTICAL);
-        options.setPadding(dp(8), dp(4), dp(8), dp(4));
-        options.setClipChildren(false);
-        options.setClipToPadding(false);
-
+        final List<String> packages = new ArrayList<String>(hidden);
+        Collections.sort(packages);
+        List<MenuOption> entries = new ArrayList<MenuOption>();
         PackageManager pm = getPackageManager();
-        for (final String packageName : hidden) {
+        for (final String packageName : packages) {
             String label;
             try {
                 ApplicationInfo info = pm.getApplicationInfo(packageName, 0);
@@ -909,24 +1111,16 @@ public class MainActivity extends Activity {
             } catch (PackageManager.NameNotFoundException ignored) {
                 label = packageName;
             }
-            addOptionRow(options, dialog, 12,
-                    label,
+            final String appLabel = label;
+            entries.add(new MenuOption(12, appLabel,
                     text("Restore to launcher", "إعادة إظهاره في الواجهة"),
                     new Runnable() {
-                        @Override public void run() {
-                            restoreHiddenApp(packageName);
-                        }
-                    });
+                        @Override public void run() { restoreHiddenApp(packageName); }
+                    }));
         }
-        ScrollView scroll = new ScrollView(this);
-        scroll.setVerticalScrollBarEnabled(false);
-        scroll.setClipChildren(true);
-        scroll.setClipToPadding(true);
-        scroll.setPadding(dp(6), dp(4), dp(6), dp(8));
-        scroll.addView(options);
-        dialog.setView(scroll);
-        dialog.show();
-        if (options.getChildCount() > 0) options.getChildAt(0).requestFocus();
+        showLauncherMenu(text("Hidden apps", "التطبيقات المخفية"),
+                text("RESTORE HIDDEN APPLICATIONS", "إدارة التطبيقات المخفية"),
+                12, entries);
     }
 
     private void loadApps() {
@@ -1164,35 +1358,43 @@ public class MainActivity extends Activity {
     }
 
     private void showWallpaperDialog() {
-        final String[] options = {
+        List<MenuOption> entries = new ArrayList<MenuOption>();
+        entries.add(new MenuOption(14,
                 text("Dynamic · selected app glow", "ديناميكية · توهج التطبيق المحدد"),
-                text("Aurora", "الشفق القطبي"),
-                text("Ocean", "المحيط"),
-                text("Violet dusk", "الشفق البنفسجي"),
-                text("Desert dusk", "غروب الصحراء"),
-                text("Choose a photo…", "اختيار صورة مخصصة…"),
-                text("Remove custom wallpaper", "إزالة الخلفية المخصصة")
-        };
-        new AlertDialog.Builder(this)
-                .setTitle(text("WALLPAPER", "الخلفية"))
-                .setItems(options, (dialog, which) -> {
-                    switch (which) {
-                        case 0:
-                            preferences.edit().putString(PREF_WALLPAPER_MODE, "dynamic").apply();
-                            updateDynamicWallpaper(focusedItem);
-                            break;
-                        case 1: setPreset("aurora"); break;
-                        case 2: setPreset("ocean"); break;
-                        case 3: setPreset("violet"); break;
-                        case 4: setPreset("desert"); break;
-                        case 5: chooseWallpaperImage(); break;
-                        case 6:
-                            customWallpaperFile().delete();
-                            preferences.edit().putString(PREF_WALLPAPER_MODE, "dynamic").apply();
-                            updateDynamicWallpaper(focusedItem);
-                            break;
+                text("Colors extracted from the selected app icon", "ألوان مستخرجة من أيقونة التطبيق المحدد"),
+                new Runnable() {
+                    @Override public void run() {
+                        preferences.edit().putString(PREF_WALLPAPER_MODE, "dynamic").apply();
+                        updateDynamicWallpaper(focusedItem);
                     }
-                }).show();
+                }));
+        entries.add(new MenuOption(15, text("Aurora", "الشفق القطبي"),
+                text("Soft northern lights", "أضواء قطبية هادئة"),
+                new Runnable() { @Override public void run() { setPreset("aurora"); } }));
+        entries.add(new MenuOption(16, text("Ocean", "المحيط"),
+                text("Deep blue gradient", "تدرج أزرق عميق"),
+                new Runnable() { @Override public void run() { setPreset("ocean"); } }));
+        entries.add(new MenuOption(17, text("Violet dusk", "الشفق البنفسجي"),
+                text("Purple evening tones", "درجات بنفسجية مسائية"),
+                new Runnable() { @Override public void run() { setPreset("violet"); } }));
+        entries.add(new MenuOption(18, text("Desert dusk", "غروب الصحراء"),
+                text("Warm desert colors", "ألوان صحراوية دافئة"),
+                new Runnable() { @Override public void run() { setPreset("desert"); } }));
+        entries.add(new MenuOption(19, text("Choose a photo…", "اختيار صورة مخصصة…"),
+                text("Use an image from storage", "استخدام صورة من التخزين"),
+                new Runnable() { @Override public void run() { chooseWallpaperImage(); } }));
+        entries.add(new MenuOption(10, text("Remove custom wallpaper", "إزالة الخلفية المخصصة"),
+                text("Return to the dynamic background", "العودة إلى الخلفية الديناميكية"),
+                new Runnable() {
+                    @Override public void run() {
+                        customWallpaperFile().delete();
+                        preferences.edit().putString(PREF_WALLPAPER_MODE, "dynamic").apply();
+                        updateDynamicWallpaper(focusedItem);
+                    }
+                }));
+        showLauncherMenu(text("Wallpaper", "الخلفية"),
+                text("PERSONALIZE YOUR SCREEN", "تخصيص شاشة التلفاز"),
+                7, entries);
     }
 
     private void setPreset(String name) {
@@ -1632,6 +1834,21 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
+    private class BoundedScrollView extends ScrollView {
+        private final int maxHeight;
+
+        BoundedScrollView(Context context, int heightLimit) {
+            super(context);
+            maxHeight = Math.max(1, heightLimit);
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int cappedHeight = MeasureSpec.makeMeasureSpec(maxHeight, MeasureSpec.AT_MOST);
+            super.onMeasure(widthMeasureSpec, cappedHeight);
+        }
+    }
+
     private static class LatinDigitsSpan extends MetricAffectingSpan {
         private final Typeface typeface;
 
@@ -1760,6 +1977,52 @@ public class MainActivity extends Activity {
                     visibleEye.quadTo(12, 22, 2, 12);
                     canvas.drawPath(visibleEye, paint);
                     canvas.drawCircle(12, 12, 3, paint);
+                    break;
+                case 14: // dynamic color gradient / sparkle
+                    canvas.drawCircle(8, 8, 3, paint);
+                    canvas.drawCircle(16, 15, 4.5f, paint);
+                    canvas.drawLine(17, 3, 17, 8, paint);
+                    canvas.drawLine(14.5f, 5.5f, 19.5f, 5.5f, paint);
+                    canvas.drawLine(5, 17, 5, 21, paint);
+                    canvas.drawLine(3, 19, 7, 19, paint);
+                    break;
+                case 15: // aurora lights
+                    canvas.drawArc(new RectF(2, 3, 22, 20), 200, 145, false, paint);
+                    canvas.drawArc(new RectF(5, 7, 19, 23), 205, 135, false, paint);
+                    canvas.drawArc(new RectF(8, 11, 16, 25), 210, 120, false, paint);
+                    break;
+                case 16: // ocean waves
+                    Path waves = new Path();
+                    waves.moveTo(2, 9); waves.cubicTo(6, 4, 10, 14, 14, 9);
+                    waves.cubicTo(18, 4, 21, 8, 22, 9);
+                    waves.moveTo(2, 15); waves.cubicTo(6, 10, 10, 20, 14, 15);
+                    waves.cubicTo(18, 10, 21, 14, 22, 15);
+                    canvas.drawPath(waves, paint);
+                    canvas.drawLine(3, 21, 21, 21, paint);
+                    break;
+                case 17: // violet dusk / moon
+                    canvas.drawCircle(12, 12, 8, paint);
+                    Paint moonCutout = new Paint(Paint.ANTI_ALIAS_FLAG);
+                    moonCutout.setColor(0xFF19233A);
+                    moonCutout.setStyle(Paint.Style.FILL);
+                    canvas.drawCircle(16, 8, 7, moonCutout);
+                    break;
+                case 18: // desert dusk
+                    canvas.drawCircle(17, 8, 4, paint);
+                    Path dunes = new Path();
+                    dunes.moveTo(2, 19); dunes.quadTo(8, 10, 14, 18);
+                    dunes.quadTo(18, 22, 22, 15);
+                    canvas.drawPath(dunes, paint);
+                    canvas.drawLine(2, 22, 22, 22, paint);
+                    break;
+                case 19: // photo
+                    canvas.drawRoundRect(new RectF(3, 4, 21, 20), 2, 2, paint);
+                    canvas.drawCircle(16, 8, 1.6f, paint);
+                    Path imageMountains = new Path();
+                    imageMountains.moveTo(5, 17); imageMountains.lineTo(10, 11);
+                    imageMountains.lineTo(13, 14); imageMountains.lineTo(16, 11);
+                    imageMountains.lineTo(20, 17);
+                    canvas.drawPath(imageMountains, paint);
                     break;
             }
             canvas.restore();
