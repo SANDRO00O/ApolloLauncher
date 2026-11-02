@@ -1,0 +1,15 @@
+Bundled typefaces
+=================
+
+Inter Display Thin and Inter Display Medium
+Copyright 2016-2023 The Inter Project Authors.
+Original source: https://github.com/rsms/inter
+
+Noto Kufi Arabic Regular
+Copyright 2010-2020 Google Inc. and Google LLC.
+Original source: https://github.com/google/fonts/tree/main/ofl/notokufiarabic
+
+The included font files are Unicode-subsetted builds of the original typefaces.
+They retain their original designs and are redistributed under the SIL Open Font
+License, Version 1.1. Font software may be bundled and embedded in applications
+under that license. See LICENSE-OFL-1.1.txt for the complete license text.

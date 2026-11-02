@@ -1,0 +1,6 @@
+Inter Display Thin/Medium and Noto Kufi Arabic Regular are Unicode-subsetted
+builds of the original fonts, distributed under SIL Open Font License 1.1.
+Copyright: The Inter Project Authors; Google Inc. and Google LLC.
+Sources: https://github.com/rsms/inter and
+https://github.com/google/fonts/tree/main/ofl/notokufiarabic
+See the repository's LICENSE-OFL-1.1.txt for the full license.
