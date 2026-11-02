@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.database.Cursor;
@@ -30,6 +31,14 @@ import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
+import android.provider.Settings;
+import android.text.TextPaint;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.format.DateFormat;
+import android.text.style.MetricAffectingSpan;
+import android.view.KeyEvent;
+import android.widget.ScrollView;
 import android.renderscript.Allocation;
 import android.renderscript.Element;
 import android.renderscript.RenderScript;
@@ -53,7 +62,9 @@ import org.json.JSONObject;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -73,6 +84,7 @@ public class MainActivity extends Activity {
 
     private static final String PREFS = "tv_launcher_preferences";
     private static final String PREF_WALLPAPER_MODE = "wallpaper_mode";
+    private static final String PREF_HIDDEN_APPS = "hidden_apps";
     private static final int REQUEST_WALLPAPER = 4102;
     private static final int BACKDROP_WIDTH = 384;
     private static final int BACKDROP_HEIGHT = 216;
@@ -126,6 +138,8 @@ public class MainActivity extends Activity {
     private TextView appSectionLabel;
     private TextView weatherTemperature;
     private TextView weatherCondition;
+    private TextView clockView;
+    private TextView dateView;
     private WeatherGlyph weatherGlyph;
     private boolean weatherRequestRunning;
     private boolean weatherLoaded;
@@ -142,6 +156,14 @@ public class MainActivity extends Activity {
             refreshWeather();
             if (!activityDestroyed) {
                 mainHandler.postDelayed(this, WEATHER_REFRESH_INTERVAL_MS);
+            }
+        }
+    };
+    private final Runnable clockUpdateRunnable = new Runnable() {
+        @Override public void run() {
+            updateClockText();
+            if (!activityDestroyed) {
+                mainHandler.postDelayed(this, 1000L);
             }
         }
     };
@@ -176,14 +198,15 @@ public class MainActivity extends Activity {
         loadApps();
         restoreWallpaper();
         refreshWeather();
+        updateClockText();
         mainHandler.postDelayed(weatherRefreshRunnable, WEATHER_REFRESH_INTERVAL_MS);
+        mainHandler.post(clockUpdateRunnable);
     }
 
     private void loadTypefaces() {
-        try { clockTypeface = Typeface.createFromAsset(getAssets(), "fonts/InterDisplay-Thin.otf"); }
-        catch (Exception ignored) { clockTypeface = Typeface.create("sans-serif-light", Typeface.NORMAL); }
         try { latinTypeface = Typeface.createFromAsset(getAssets(), "fonts/InterDisplay-Medium.otf"); }
         catch (Exception ignored) { latinTypeface = Typeface.create("sans-serif-medium", Typeface.NORMAL); }
+        clockTypeface = Typeface.create(latinTypeface, Typeface.BOLD);
         try { arabicTypeface = Typeface.createFromAsset(getAssets(), "fonts/NotoKufiArabic-Regular.ttf"); }
         catch (Exception ignored) { arabicTypeface = Typeface.create("sans-serif", Typeface.NORMAL); }
     }
@@ -191,6 +214,8 @@ public class MainActivity extends Activity {
     private void buildInterface() {
         root = new FrameLayout(this);
         root.setFocusable(false);
+        root.setClipChildren(false);
+        root.setClipToPadding(false);
 
         wallpaperView = new ImageView(this);
         wallpaperView.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -209,16 +234,34 @@ public class MainActivity extends Activity {
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setPadding(dp(48), dp(22), dp(48), 0);
+        topBar.setPadding(dp(48), dp(10), dp(48), 0);
+        topBar.setClipChildren(false);
+        topBar.setClipToPadding(false);
 
         // Live weather supplied by the TV's built-in Zeasn General Services provider.
         LinearLayout weatherPanel = new LinearLayout(this);
         weatherPanel.setOrientation(LinearLayout.HORIZONTAL);
-        weatherPanel.setGravity(Gravity.CENTER_VERTICAL);
+        weatherPanel.setGravity(Gravity.CENTER_VERTICAL | (isArabicLocale() ? Gravity.RIGHT : Gravity.LEFT));
+        weatherPanel.setPadding(dp(8), dp(4), dp(8), dp(4));
+        weatherPanel.setBackground(roundRect(0x00000000, 0x00000000, 16));
+        weatherPanel.setFocusable(true);
+        weatherPanel.setClickable(true);
         weatherPanel.setClipChildren(false);
+        weatherPanel.setClipToPadding(false);
+        weatherPanel.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) { openWeatherApp(); }
+        });
+        weatherPanel.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override public void onFocusChange(View view, boolean focused) {
+                view.animate().scaleX(focused ? 1.06f : 1f).scaleY(focused ? 1.06f : 1f)
+                        .translationZ(focused ? dp(8) : 0).setDuration(150).start();
+                view.setBackground(roundRect(focused ? 0x35FFFFFF : 0x00000000,
+                        focused ? 0xAAFFFFFF : 0x00000000, 16));
+            }
+        });
 
         weatherGlyph = new WeatherGlyph(this);
-        LinearLayout.LayoutParams weatherIconParams = new LinearLayout.LayoutParams(dp(38), dp(38));
+        LinearLayout.LayoutParams weatherIconParams = new LinearLayout.LayoutParams(dp(42), dp(42));
         if (isArabicLocale()) weatherIconParams.rightMargin = dp(10);
         else weatherIconParams.leftMargin = dp(10);
         weatherPanel.addView(weatherGlyph, weatherIconParams);
@@ -230,7 +273,8 @@ public class MainActivity extends Activity {
         weatherTemperature.setText("--°");
         weatherTemperature.setTextColor(Color.WHITE);
         weatherTemperature.setTypeface(clockTypeface);
-        weatherTemperature.setTextSize(TypedValue.COMPLEX_UNIT_SP, 25);
+        weatherTemperature.setTextSize(TypedValue.COMPLEX_UNIT_SP, 23);
+        weatherTemperature.setIncludeFontPadding(false);
         weatherTemperature.setSingleLine(true);
         weatherTemperature.setTextDirection(View.TEXT_DIRECTION_LTR);
         weatherText.addView(weatherTemperature, new LinearLayout.LayoutParams(
@@ -241,6 +285,7 @@ public class MainActivity extends Activity {
         weatherCondition.setTextColor(0xDFFFFFFF);
         weatherCondition.setTypeface(typefaceForLocale());
         weatherCondition.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        weatherCondition.setIncludeFontPadding(false);
         weatherCondition.setSingleLine(true);
         weatherCondition.setEllipsize(android.text.TextUtils.TruncateAt.END);
         weatherCondition.setTextDirection(View.TEXT_DIRECTION_LOCALE);
@@ -248,17 +293,22 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         weatherPanel.addView(weatherText);
 
-        topBar.addView(weatherPanel, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        topBar.addView(weatherPanel, new LinearLayout.LayoutParams(0, dp(60), 1f));
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(Gravity.CENTER_VERTICAL);
+        actions.setClipChildren(false);
+        actions.setClipToPadding(false);
+        actions.addView(makePill(text("Apps", "التطبيقات"), 8, new Runnable() {
+            @Override public void run() { showHiddenAppsDialog(); }
+        }));
         actions.addView(makePill(text("Wallpaper", "الخلفية"), 7, new Runnable() {
             @Override public void run() { showWallpaperDialog(); }
         }));
         topBar.addView(actions);
         FrameLayout.LayoutParams topParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, dp(72), Gravity.TOP);
+                FrameLayout.LayoutParams.MATCH_PARENT, dp(84), Gravity.TOP);
         root.addView(topBar, topParams);
 
         // Oversized, vertically stretched clock, deliberately centred on the canvas.
@@ -268,33 +318,33 @@ public class MainActivity extends Activity {
         clockStack.setClipChildren(false);
         clockStack.setClipToPadding(false);
 
-        TextClock clock = new TextClock(this);
-        clock.setFormat12Hour("h:mm");
-        clock.setFormat24Hour("HH:mm");
-        clock.setTextColor(Color.WHITE);
-        clock.setTypeface(clockTypeface);
-        clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, clockSizeSp());
-        clock.setGravity(Gravity.CENTER);
-        clock.setLetterSpacing(0.025f);
-        clock.setShadowLayer(dp(22), 0, dp(6), 0x99000000);
-        clock.setScaleY(1.34f);
-        clock.setScaleX(1.03f);
-        clockStack.addView(clock, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, dp(clockSizeSp() * 1.42f)));
+        clockView = new TextView(this);
+        clockView.setTextColor(Color.WHITE);
+        clockView.setTypeface(clockTypeface);
+        clockView.getPaint().setFakeBoldText(true);
+        clockView.setTextSize(TypedValue.COMPLEX_UNIT_SP, clockSizeSp());
+        clockView.setIncludeFontPadding(false);
+        clockView.setGravity(Gravity.CENTER);
+        clockView.setTextDirection(View.TEXT_DIRECTION_LTR);
+        clockView.setLetterSpacing(0.025f);
+        clockView.setShadowLayer(dp(22), 0, dp(6), 0x99000000);
+        clockView.setScaleY(1.34f);
+        clockView.setScaleX(1.03f);
+        clockStack.addView(clockView, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, dp(clockSizeSp() * 1.50f)));
 
-        TextClock date = new TextClock(this);
-        date.setFormat12Hour("EEEE  ·  d MMMM");
-        date.setFormat24Hour("EEEE  ·  d MMMM");
-        date.setTextColor(0xD8FFFFFF);
-        date.setTypeface(typefaceForLocale());
-        date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
-        date.setGravity(Gravity.CENTER);
-        date.setLetterSpacing(0.025f);
-        date.setShadowLayer(dp(10), 0, dp(2), 0x88000000);
+        dateView = new TextView(this);
+        dateView.setTextColor(0xD8FFFFFF);
+        dateView.setTypeface(typefaceForLocale());
+        dateView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        dateView.setIncludeFontPadding(false);
+        dateView.setGravity(Gravity.CENTER);
+        dateView.setLetterSpacing(0.025f);
+        dateView.setShadowLayer(dp(10), 0, dp(2), 0x88000000);
         LinearLayout.LayoutParams dateParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         dateParams.topMargin = dp(12);
-        clockStack.addView(date, dateParams);
+        clockStack.addView(dateView, dateParams);
 
         FrameLayout.LayoutParams clockParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -398,6 +448,70 @@ public class MainActivity extends Activity {
         return isArabicLocale() ? arabic : english;
     }
 
+    private String toWesternDigits(String value) {
+        if (value == null || value.length() == 0) return value;
+        StringBuilder result = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c >= '\\u0660' && c <= '\\u0669') {
+                c = (char)('0' + (c - '\\u0660'));
+            } else if (c >= '\\u06F0' && c <= '\\u06F9') {
+                c = (char)('0' + (c - '\\u06F0'));
+            }
+            result.append(c);
+        }
+        return result.toString();
+    }
+
+    private CharSequence formatDigits(CharSequence value) {
+        String normalized = toWesternDigits(value == null ? "" : value.toString());
+        SpannableString styled = new SpannableString(normalized);
+        int start = -1;
+        for (int i = 0; i <= normalized.length(); i++) {
+            boolean digit = i < normalized.length() && normalized.charAt(i) >= '0'
+                    && normalized.charAt(i) <= '9';
+            if (digit && start < 0) start = i;
+            if (!digit && start >= 0) {
+                styled.setSpan(new LatinDigitsSpan(latinTypeface), start, i,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                start = -1;
+            }
+        }
+        return styled;
+    }
+
+    private void updateClockText() {
+        if (clockView == null || dateView == null) return;
+        Date now = new Date();
+        String timePattern = DateFormat.is24HourFormat(this) ? "HH:mm" : "h:mm";
+        SimpleDateFormat timeFormat = new SimpleDateFormat(timePattern, Locale.US);
+        clockView.setText(timeFormat.format(now));
+
+        SimpleDateFormat dateFormat = new SimpleDateFormat("EEEE  ·  d MMMM", uiLocale());
+        dateView.setTypeface(typefaceForLocale());
+        dateView.setText(formatDigits(dateFormat.format(now)));
+    }
+
+    private void openWeatherApp() {
+        try {
+            Intent intent = new Intent("cn.zeasn.general.services.OPEN_WEEKLY");
+            intent.setPackage("com.zeasn.services.general");
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+        } catch (Exception firstError) {
+            try {
+                Intent fallback = new Intent(Intent.ACTION_MAIN);
+                fallback.setComponent(new ComponentName("com.zeasn.services.general",
+                        "com.zeasn.services.general.ui.WeeklyActivity"));
+                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(fallback);
+            } catch (Exception secondError) {
+                Toast.makeText(this, text("Weather app is unavailable", "تطبيق الطقس غير متاح"),
+                        Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
     private void refreshWeather() {
         if (weatherRequestRunning || activityDestroyed) return;
         weatherRequestRunning = true;
@@ -442,8 +556,8 @@ public class MainActivity extends Activity {
                 if (activityDestroyed || weatherTemperature == null || weatherCondition == null) return;
 
                 if (info != null) {
-                    weatherTemperature.setText(info.temperature);
-                    weatherCondition.setText(localizeWeatherCondition(info.condition));
+                    weatherTemperature.setText(formatDigits(info.temperature));
+                    weatherCondition.setText(formatDigits(localizeWeatherCondition(info.condition)));
                     if (weatherGlyph != null) weatherGlyph.setCondition(info.condition, info.icon);
                     weatherLoaded = true;
                 } else if (!weatherLoaded) {
@@ -496,6 +610,9 @@ public class MainActivity extends Activity {
         pill.setBackground(roundRect(0x35FFFFFF, 0x55FFFFFF, 24));
         pill.setFocusable(true);
         pill.setClickable(true);
+        pill.setClipChildren(false);
+        pill.setClipToPadding(false);
+        pill.setElevation(dp(3));
         LineIcon icon = new LineIcon(this, iconKind);
         pill.addView(icon, new LinearLayout.LayoutParams(dp(18), dp(18)));
         TextView caption = new TextView(this);
@@ -510,7 +627,8 @@ public class MainActivity extends Activity {
         });
         pill.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override public void onFocusChange(View view, boolean focused) {
-                view.animate().scaleX(focused ? 1.06f : 1f).scaleY(focused ? 1.06f : 1f)
+                view.animate().scaleX(focused ? 1.10f : 1f).scaleY(focused ? 1.10f : 1f)
+                        .translationZ(focused ? dp(10) : 0)
                         .setDuration(150).start();
                 view.setBackground(roundRect(focused ? 0x52FFFFFF : 0x35FFFFFF,
                         focused ? 0xBFFFFFFF : 0x55FFFFFF, 24));
@@ -518,7 +636,7 @@ public class MainActivity extends Activity {
         });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, dp(42));
-        lp.leftMargin = dp(8);
+        lp.setMargins(dp(5), dp(4), dp(5), dp(4));
         pill.setLayoutParams(lp);
         return pill;
     }
@@ -548,10 +666,204 @@ public class MainActivity extends Activity {
         receiverRegistered = true;
     }
 
+    private Set<String> getUserHiddenApps() {
+        Set<String> saved = preferences.getStringSet(PREF_HIDDEN_APPS,
+                Collections.<String>emptySet());
+        return new HashSet<String>(saved);
+    }
+
+    private void hideApp(String packageName) {
+        Set<String> hidden = getUserHiddenApps();
+        hidden.add(packageName);
+        preferences.edit().putStringSet(PREF_HIDDEN_APPS, hidden).apply();
+        loadApps();
+    }
+
+    private void restoreHiddenApp(String packageName) {
+        Set<String> hidden = getUserHiddenApps();
+        hidden.remove(packageName);
+        preferences.edit().putStringSet(PREF_HIDDEN_APPS, hidden).apply();
+        loadApps();
+    }
+
+    private boolean isSystemApp(String packageName) {
+        try {
+            ApplicationInfo info = getPackageManager().getApplicationInfo(packageName, 0);
+            return (info.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+        } catch (PackageManager.NameNotFoundException ignored) {
+            return false;
+        }
+    }
+
+    private void openAppSettings(String packageName) {
+        try {
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + packageName));
+            startActivity(intent);
+        } catch (Exception ignored) {
+            Toast.makeText(this, text("Could not open app settings", "تعذر فتح إعدادات التطبيق"),
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void uninstallApp(String packageName) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + packageName));
+            startActivity(intent);
+        } catch (Exception ignored) {
+            Toast.makeText(this, text("Uninstall is unavailable", "إلغاء التثبيت غير متاح"),
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void addOptionRow(LinearLayout container, final AlertDialog dialog, int iconKind,
+                              String title, String subtitle, final Runnable action) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), dp(8), dp(14), dp(8));
+        row.setBackground(roundRect(0x18FFFFFF, 0x24FFFFFF, 14));
+        row.setFocusable(true);
+        row.setClickable(true);
+        row.setMinimumHeight(dp(58));
+
+        LineIcon icon = new LineIcon(this, iconKind);
+        row.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
+
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.setGravity(isArabicLocale() ? Gravity.RIGHT : Gravity.LEFT);
+        LinearLayout.LayoutParams labelsParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        labelsParams.leftMargin = dp(12);
+        labelsParams.rightMargin = dp(12);
+        TextView primary = new TextView(this);
+        primary.setText(formatDigits(title));
+        primary.setTextColor(Color.WHITE);
+        primary.setTypeface(typefaceFor(title));
+        primary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        primary.setIncludeFontPadding(false);
+        labels.addView(primary);
+        TextView secondary = new TextView(this);
+        secondary.setText(formatDigits(subtitle));
+        secondary.setTextColor(0xBFFFFFFF);
+        secondary.setTypeface(typefaceFor(subtitle));
+        secondary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        secondary.setIncludeFontPadding(false);
+        labels.addView(secondary);
+        row.addView(labels, labelsParams);
+
+        row.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override public void onFocusChange(View view, boolean focused) {
+                view.setBackground(roundRect(focused ? 0x42FFFFFF : 0x18FFFFFF,
+                        focused ? 0xAFFFFFFF : 0x24FFFFFF, 14));
+                view.setScaleX(focused ? 1.02f : 1f);
+                view.setScaleY(focused ? 1.02f : 1f);
+            }
+        });
+        row.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) {
+                dialog.dismiss();
+                action.run();
+            }
+        });
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowParams.setMargins(0, dp(4), 0, dp(4));
+        container.addView(row, rowParams);
+    }
+
+    private void showAppOptions(final Item item) {
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(formatDigits(item.label))
+                .setNegativeButton(text("Close", "إغلاق"), null)
+                .create();
+
+        LinearLayout options = new LinearLayout(this);
+        options.setOrientation(LinearLayout.VERTICAL);
+        options.setPadding(dp(12), dp(8), dp(12), dp(8));
+
+        addOptionRow(options, dialog, 9,
+                text("Hide app", "إخفاء التطبيق"),
+                text("Remove it from this launcher", "إزالته من هذه الواجهة"),
+                new Runnable() {
+                    @Override public void run() {
+                        hideApp(item.packageName);
+                        Toast.makeText(MainActivity.this,
+                                text("App hidden", "تم إخفاء التطبيق"), Toast.LENGTH_SHORT).show();
+                    }
+                });
+
+        if (!isSystemApp(item.packageName)) {
+            addOptionRow(options, dialog, 10,
+                    text("Uninstall app", "إلغاء تثبيت التطبيق"),
+                    text("Android will ask you to confirm", "سيطلب Android تأكيد العملية"),
+                    new Runnable() {
+                        @Override public void run() { uninstallApp(item.packageName); }
+                    });
+        }
+
+        addOptionRow(options, dialog, 11,
+                text("Force stop / background", "إيقاف التطبيق / الخلفية"),
+                text("Open Android app settings", "فتح إعدادات التطبيق لإيقافه"),
+                new Runnable() {
+                    @Override public void run() { openAppSettings(item.packageName); }
+                });
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(options);
+        dialog.setView(scroll);
+        dialog.show();
+        options.getChildAt(0).requestFocus();
+    }
+
+    private void showHiddenAppsDialog() {
+        final Set<String> hidden = getUserHiddenApps();
+        if (hidden.isEmpty()) {
+            Toast.makeText(this, text("No hidden apps", "لا توجد تطبيقات مخفية"),
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(text("Hidden apps", "التطبيقات المخفية"))
+                .setNegativeButton(text("Close", "إغلاق"), null)
+                .create();
+        LinearLayout options = new LinearLayout(this);
+        options.setOrientation(LinearLayout.VERTICAL);
+        options.setPadding(dp(12), dp(8), dp(12), dp(8));
+
+        PackageManager pm = getPackageManager();
+        for (final String packageName : hidden) {
+            String label;
+            try {
+                ApplicationInfo info = pm.getApplicationInfo(packageName, 0);
+                label = String.valueOf(pm.getApplicationLabel(info));
+            } catch (PackageManager.NameNotFoundException ignored) {
+                label = packageName;
+            }
+            addOptionRow(options, dialog, 12,
+                    label,
+                    text("Restore to launcher", "إعادة إظهاره في الواجهة"),
+                    new Runnable() {
+                        @Override public void run() {
+                            restoreHiddenApp(packageName);
+                        }
+                    });
+        }
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(options);
+        dialog.setView(scroll);
+        dialog.show();
+        if (options.getChildCount() > 0) options.getChildAt(0).requestFocus();
+    }
+
     private void loadApps() {
         PackageManager pm = getPackageManager();
         Set<String> hidden = new HashSet<String>();
         Collections.addAll(hidden, HIDDEN);
+        hidden.addAll(getUserHiddenApps());
         List<Item> apps = new ArrayList<Item>();
         Set<String> seen = new HashSet<String>();
 
@@ -567,7 +879,7 @@ public class MainActivity extends Activity {
                     continue;
                 }
                 Item item = new Item();
-                item.label = String.valueOf(resolveInfo.loadLabel(pm));
+                item.label = toWesternDigits(String.valueOf(resolveInfo.loadLabel(pm)));
                 item.packageName = packageName;
                 Drawable banner = null;
                 try { banner = info.loadBanner(pm); } catch (Exception ignored) { }
@@ -620,13 +932,30 @@ public class MainActivity extends Activity {
     }
 
     private View createAppTile(final Item item) {
-        final FrameLayout tile = new FrameLayout(this);
+        final FrameLayout tile = new FrameLayout(this) {
+            @Override
+            public boolean onKeyLongPress(int keyCode, KeyEvent event) {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
+                        || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+                    showAppOptions(item);
+                    return true;
+                }
+                return super.onKeyLongPress(keyCode, event);
+            }
+        };
         LinearLayout.LayoutParams tileParams = new LinearLayout.LayoutParams(dp(150), dp(92));
         tileParams.setMargins(dp(7), dp(2), dp(7), dp(4));
         tile.setLayoutParams(tileParams);
         tile.setBackground(appTileBackground(item, false));
         tile.setFocusable(true);
         tile.setClickable(true);
+        tile.setLongClickable(true);
+        tile.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override public boolean onLongClick(View view) {
+                showAppOptions(item);
+                return true;
+            }
+        });
         tile.setClipToOutline(true);
         tile.setElevation(dp(3));
 
@@ -665,7 +994,7 @@ public class MainActivity extends Activity {
                 view.setBackground(appTileBackground(item, hasFocus));
                 if (hasFocus) {
                     focusedItem = item;
-                    selectedTitle.setText(item.label);
+                    selectedTitle.setText(formatDigits(item.label));
                     selectedTitle.setTypeface(typefaceFor(item.label));
                     centerInScroller(view);
                     updateDynamicWallpaper(item);
@@ -700,7 +1029,7 @@ public class MainActivity extends Activity {
         LineIcon icon = new LineIcon(this, item.iconKind);
         tile.addView(icon, new LinearLayout.LayoutParams(dp(19), dp(19)));
         TextView label = new TextView(this);
-        label.setText(item.label);
+        label.setText(formatDigits(item.label));
         label.setTextColor(0xF2FFFFFF);
         label.setTypeface(typefaceFor(item.label));
         label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
@@ -1099,6 +1428,22 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
+    private static class LatinDigitsSpan extends MetricAffectingSpan {
+        private final Typeface typeface;
+
+        LatinDigitsSpan(Typeface value) {
+            typeface = value;
+        }
+
+        @Override public void updateDrawState(TextPaint paint) {
+            paint.setTypeface(typeface);
+        }
+
+        @Override public void updateMeasureState(TextPaint paint) {
+            paint.setTypeface(typeface);
+        }
+    }
+
     /** Compact weather glyph rendered locally so it works on Android 5.1 without emoji fonts. */
     private class WeatherGlyph extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -1261,6 +1606,38 @@ public class MainActivity extends Activity {
                     hill.moveTo(5, 17); hill.lineTo(9.5f, 11.5f); hill.lineTo(12.5f, 15);
                     hill.lineTo(16, 11); hill.lineTo(20, 17);
                     canvas.drawPath(hill, paint);
+                    break;
+                case 8: // app grid
+                    canvas.drawRoundRect(new RectF(3, 3, 10, 10), 1.5f, 1.5f, paint);
+                    canvas.drawRoundRect(new RectF(14, 3, 21, 10), 1.5f, 1.5f, paint);
+                    canvas.drawRoundRect(new RectF(3, 14, 10, 21), 1.5f, 1.5f, paint);
+                    canvas.drawRoundRect(new RectF(14, 14, 21, 21), 1.5f, 1.5f, paint);
+                    break;
+                case 9: // hide / eye off
+                    Path eye = new Path();
+                    eye.moveTo(2, 12); eye.quadTo(12, 2, 22, 12);
+                    eye.quadTo(12, 22, 2, 12);
+                    canvas.drawPath(eye, paint);
+                    canvas.drawCircle(12, 12, 3, paint);
+                    canvas.drawLine(4, 20, 20, 4, paint);
+                    break;
+                case 10: // uninstall / trash
+                    canvas.drawRoundRect(new RectF(6, 8, 18, 21), 1.5f, 1.5f, paint);
+                    canvas.drawLine(4, 6, 20, 6, paint);
+                    canvas.drawLine(9, 3, 15, 3, paint);
+                    canvas.drawLine(10, 11, 10, 18, paint);
+                    canvas.drawLine(14, 11, 14, 18, paint);
+                    break;
+                case 11: // application settings / stop
+                    canvas.drawCircle(12, 12, 8.5f, paint);
+                    canvas.drawRect(new RectF(9, 9, 15, 15), paint);
+                    break;
+                case 12: // unhide / eye
+                    Path visibleEye = new Path();
+                    visibleEye.moveTo(2, 12); visibleEye.quadTo(12, 2, 22, 12);
+                    visibleEye.quadTo(12, 22, 2, 12);
+                    canvas.drawPath(visibleEye, paint);
+                    canvas.drawCircle(12, 12, 3, paint);
                     break;
             }
             canvas.restore();
