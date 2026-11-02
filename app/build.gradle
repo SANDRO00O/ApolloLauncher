@@ -1,0 +1,17 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.karrar.tvlauncher'
+    compileSdk 33
+    defaultConfig {
+        applicationId 'com.karrar.tvlauncher'
+        minSdk 21
+        targetSdk 22
+        versionCode 1
+        versionName '1.0'
+    }
+    buildTypes { release { minifyEnabled false } }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
