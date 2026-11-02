@@ -78,15 +78,15 @@ public class MainActivity extends Activity {
             "com.cultraview.agingmodel", "com.ctvdevicemanger", "com.example.upgrad"
     };
 
-    // label, package, activity, custom line-icon kind
+    // English label, Arabic label, package, activity, custom line-icon kind.
     private static final String[][] QUICK = {
-            {"التلفاز", "com.droidlogic.tvsource", "com.droidlogic.tvsource.DroidLogicTv", "0"},
-            {"المصادر", "com.droidlogic.tvinput", "com.droidlogic.tvinput.shortcut.SourceListActivity", "1"},
-            {"الإعدادات", "com.cultraview.settings", "com.cultraview.settings.CtvSettings", "2"},
-            {"الشبكة", "com.cultraview.settings.net", "com.cultraview.settings.net.NetworkSettingsActivity", "3"},
-            {"المتصفح", "com.android.browser", "com.android.browser.BrowserActivity", "4"},
-            {"الوسائط", "com.droidlogic.videoplayer", "com.droidlogic.videoplayer.FileList", "5"},
-            {"العرض اللاسلكي", "com.droidlogic.miracast", "com.droidlogic.miracast.WiFiDirectMainActivity", "6"}
+            {"TV", "التلفاز", "com.droidlogic.tvsource", "com.droidlogic.tvsource.DroidLogicTv", "0"},
+            {"Sources", "المصادر", "com.droidlogic.tvinput", "com.droidlogic.tvinput.shortcut.SourceListActivity", "1"},
+            {"Settings", "الإعدادات", "com.cultraview.settings", "com.cultraview.settings.CtvSettings", "2"},
+            {"Network", "الشبكة", "com.cultraview.settings.net", "com.cultraview.settings.net.NetworkSettingsActivity", "3"},
+            {"Browser", "المتصفح", "com.android.browser", "com.android.browser.BrowserActivity", "4"},
+            {"Media", "الوسائط", "com.droidlogic.videoplayer", "com.droidlogic.videoplayer.FileList", "5"},
+            {"Cast", "العرض اللاسلكي", "com.droidlogic.miracast", "com.droidlogic.miracast.WiFiDirectMainActivity", "6"}
     };
 
     private static final int[][] PALETTE = {
@@ -201,7 +201,7 @@ public class MainActivity extends Activity {
         brandName.setTextDirection(View.TEXT_DIRECTION_LOCALE);
         brandName.setTypeface(typefaceFor(brandName.getText().toString()));
         brandName.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        brandName.setLetterSpacing(0.14f);
+        brandName.setLetterSpacing(isArabicLocale() ? 0f : 0.14f);
         brand.addView(brandName);
         topBar.addView(brand, new LinearLayout.LayoutParams(0, dp(42), 1f));
 
@@ -275,7 +275,7 @@ public class MainActivity extends Activity {
         appSectionLabel.setTextColor(0xBFFFFFFF);
         appSectionLabel.setTypeface(typefaceFor(text("YOUR APPS", "تطبيقاتك")));
         appSectionLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        appSectionLabel.setLetterSpacing(0.13f);
+        appSectionLabel.setLetterSpacing(isArabicLocale() ? 0f : 0.13f);
         heading.addView(appSectionLabel, new LinearLayout.LayoutParams(0, dp(28), 1f));
 
         selectedTitle = new TextView(this);
@@ -329,8 +329,17 @@ public class MainActivity extends Activity {
         return getResources().getDisplayMetrics().heightPixels / density;
     }
 
+    private Locale uiLocale() {
+        Locale locale = getResources().getConfiguration().locale;
+        return locale != null ? locale : Locale.getDefault();
+    }
+
+    private boolean isArabicLocale() {
+        return "ar".equals(uiLocale().getLanguage());
+    }
+
     private Typeface typefaceForLocale() {
-        return "ar".equals(Locale.getDefault().getLanguage()) ? arabicTypeface : latinTypeface;
+        return isArabicLocale() ? arabicTypeface : latinTypeface;
     }
 
     private Typeface typefaceFor(String value) {
@@ -341,7 +350,7 @@ public class MainActivity extends Activity {
     }
 
     private String text(String english, String arabic) {
-        return "ar".equals(Locale.getDefault().getLanguage()) ? arabic : english;
+        return isArabicLocale() ? arabic : english;
     }
 
     private GradientDrawable roundRect(int fill, int stroke, float radiusDp) {
@@ -456,13 +465,13 @@ public class MainActivity extends Activity {
 
         List<Item> quick = new ArrayList<Item>();
         for (String[] entry : QUICK) {
-            ComponentName component = new ComponentName(entry[1], entry[2]);
+            ComponentName component = new ComponentName(entry[2], entry[3]);
             try {
                 pm.getActivityInfo(component, 0);
                 Item item = new Item();
-                item.label = entry[0];
-                item.packageName = entry[1];
-                item.iconKind = Integer.parseInt(entry[3]);
+                item.label = text(entry[0], entry[1]);
+                item.packageName = entry[2];
+                item.iconKind = Integer.parseInt(entry[4]);
                 item.intent = new Intent(Intent.ACTION_MAIN).setComponent(component)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
                 quick.add(item);
