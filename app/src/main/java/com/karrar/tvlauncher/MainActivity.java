@@ -453,10 +453,11 @@ public class MainActivity extends Activity {
         StringBuilder result = new StringBuilder(value.length());
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
-            if (c >= '\\u0660' && c <= '\\u0669') {
-                c = (char)('0' + (c - '\\u0660'));
-            } else if (c >= '\\u06F0' && c <= '\\u06F9') {
-                c = (char)('0' + (c - '\\u06F0'));
+            int codePoint = (int)c;
+            if (codePoint >= 1632 && codePoint <= 1641) {
+                c = (char)('0' + (codePoint - 1632));
+            } else if (codePoint >= 1776 && codePoint <= 1785) {
+                c = (char)('0' + (codePoint - 1776));
             }
             result.append(c);
         }
