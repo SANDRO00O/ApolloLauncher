@@ -117,6 +117,7 @@ public class MainActivity extends Activity {
         String label;
         String packageName;
         Drawable art;
+        Drawable icon;
         boolean banner;
         int iconKind;
         Intent intent;
@@ -274,8 +275,8 @@ public class MainActivity extends Activity {
         weatherGlyph.setSingleLine(true);
         weatherGlyph.setTextDirection(View.TEXT_DIRECTION_LTR);
         LinearLayout.LayoutParams weatherIconParams = new LinearLayout.LayoutParams(dp(42), dp(42));
-        if (isArabicLocale()) weatherIconParams.rightMargin = dp(10);
-        else weatherIconParams.leftMargin = dp(10);
+        if (isArabicLocale()) weatherIconParams.leftMargin = dp(16);
+        else weatherIconParams.rightMargin = dp(16);
         weatherPanel.addView(weatherGlyph, weatherIconParams);
 
         LinearLayout weatherText = new LinearLayout(this);
@@ -383,17 +384,18 @@ public class MainActivity extends Activity {
         appSectionLabel.setTypeface(typefaceFor(text("YOUR APPS", "تطبيقاتك")));
         appSectionLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         appSectionLabel.setLetterSpacing(isArabicLocale() ? 0f : 0.13f);
-        heading.addView(appSectionLabel, new LinearLayout.LayoutParams(0, dp(28), 1f));
+        heading.addView(appSectionLabel, new LinearLayout.LayoutParams(0, dp(38), 1f));
 
         selectedTitle = new TextView(this);
         selectedTitle.setTextColor(Color.WHITE);
         selectedTitle.setTypeface(latinTypeface);
-        selectedTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
-        selectedTitle.setGravity(Gravity.CENTER_VERTICAL | Gravity.RIGHT);
+        selectedTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
+        selectedTitle.setGravity(Gravity.CENTER);
+        selectedTitle.setIncludeFontPadding(true);
         selectedTitle.setSingleLine(true);
         selectedTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
         heading.addView(selectedTitle, new LinearLayout.LayoutParams(
-                0, dp(30), 1.4f));
+                0, dp(40), 1.4f));
         dock.addView(heading);
 
         appsRow = new LinearLayout(this);
@@ -949,14 +951,16 @@ public class MainActivity extends Activity {
                 Item item = new Item();
                 item.label = toWesternDigits(String.valueOf(resolveInfo.loadLabel(pm)));
                 item.packageName = packageName;
+                try { item.icon = resolveInfo.loadIcon(pm); } catch (Exception ignored) { }
                 Drawable banner = null;
                 try { banner = info.loadBanner(pm); } catch (Exception ignored) { }
                 if (banner != null) {
                     item.art = banner;
                     item.banner = true;
                 } else {
-                    item.art = resolveInfo.loadIcon(pm);
+                    item.art = item.icon;
                 }
+                if (item.icon == null) item.icon = item.art;
                 item.intent = new Intent(Intent.ACTION_MAIN)
                         .setComponent(new ComponentName(packageName, info.name))
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
@@ -1341,93 +1345,225 @@ public class MainActivity extends Activity {
     private void updateDynamicWallpaper(final Item item) {
         String mode = preferences.getString(PREF_WALLPAPER_MODE, "dynamic");
         if (!"dynamic".equals(mode)) return;
-        if (item == null || item.art == null) return;
+        final Drawable sourceIcon = item == null ? null : (item.icon != null ? item.icon : item.art);
+        if (item == null || sourceIcon == null) return;
 
         final int request = ++blurRequest;
         final String key = item.packageName == null ? item.label : item.packageName;
-        Bitmap cached = blurredBackdrops.get(key);
-        if (cached != null) {
-            showBitmap(cached);
+        Bitmap memoryCached = blurredBackdrops.get(key);
+        if (memoryCached != null) {
+            showBitmap(memoryCached);
             return;
         }
 
-        final Bitmap seed = makeBackdropSeed(item);
+        final File cacheFile = backdropCacheFile(key);
+        final Bitmap iconSnapshot = drawableToBitmap(sourceIcon, 96);
+        if (iconSnapshot == null) return;
+
         blurExecutor.getQueue().clear();
         blurExecutor.execute(new Runnable() {
             @Override public void run() {
-                Bitmap blurred = blurBitmap(seed, 25.0f);
-                if (blurred != seed && !seed.isRecycled()) seed.recycle();
-                if (blurred == null) return;
-                blurredBackdrops.put(key, blurred);
-                mainHandler.post(new Runnable() {
-                    @Override public void run() {
-                        if (request == blurRequest
-                                && "dynamic".equals(preferences.getString(PREF_WALLPAPER_MODE, "dynamic"))) {
-                            showBitmap(blurred);
-                        }
+                Bitmap backdrop = null;
+                try {
+                    if (cacheFile.isFile() && cacheFile.length() > 0) {
+                        backdrop = BitmapFactory.decodeFile(cacheFile.getAbsolutePath());
+                        if (backdrop == null) cacheFile.delete();
                     }
-                });
+
+                    if (backdrop == null) {
+                        Bitmap gradient = makeDreamyGradient(iconSnapshot);
+                        backdrop = blurBitmap(gradient, 19.0f);
+                        if (backdrop != gradient && !gradient.isRecycled()) gradient.recycle();
+                        saveBackdropToDisk(backdrop, cacheFile);
+                    }
+
+                    if (backdrop != null) {
+                        blurredBackdrops.put(key, backdrop);
+                        final Bitmap ready = backdrop;
+                        mainHandler.post(new Runnable() {
+                            @Override public void run() {
+                                if (request == blurRequest
+                                        && "dynamic".equals(preferences.getString(PREF_WALLPAPER_MODE, "dynamic"))) {
+                                    showBitmap(ready);
+                                }
+                            }
+                        });
+                    }
+                } catch (Throwable error) {
+                    android.util.Log.w("TvLauncher", "Could not build app color backdrop", error);
+                } finally {
+                    if (!iconSnapshot.isRecycled()) iconSnapshot.recycle();
+                }
             }
         });
     }
 
-    private Bitmap makeBackdropSeed(Item item) {
-        Bitmap bitmap = Bitmap.createBitmap(BACKDROP_WIDTH, BACKDROP_HEIGHT, Bitmap.Config.ARGB_8888);
+    private File backdropCacheFile(String key) {
+        String safeName = key == null ? "unknown" : key.replaceAll("[^A-Za-z0-9._-]", "_");
+        File directory = new File(getCacheDir(), "dreamy_backdrops");
+        if (!directory.exists()) directory.mkdirs();
+        return new File(directory, safeName + ".png");
+    }
+
+    private Bitmap drawableToBitmap(Drawable drawable, int size) {
+        if (drawable == null) return null;
+        Drawable render = drawable;
+        if (drawable.getConstantState() != null) {
+            try { render = drawable.getConstantState().newDrawable().mutate(); }
+            catch (Exception ignored) { render = drawable; }
+        }
+
+        int oldLeft = render.getBounds().left;
+        int oldTop = render.getBounds().top;
+        int oldRight = render.getBounds().right;
+        int oldBottom = render.getBounds().bottom;
+        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
-        int accent = extractAccent(item.art);
-        int dark = darken(accent, 0.22f);
-        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-        paint.setShader(new LinearGradient(0, 0, BACKDROP_WIDTH, BACKDROP_HEIGHT,
-                new int[]{dark, 0xFF10172F, 0xFF170F2B}, null, Shader.TileMode.CLAMP));
-        canvas.drawRect(0, 0, BACKDROP_WIDTH, BACKDROP_HEIGHT, paint);
-
-        paint.setShader(new RadialGradient(BACKDROP_WIDTH * 0.72f, BACKDROP_HEIGHT * 0.40f,
-                BACKDROP_WIDTH * 0.78f, new int[]{withAlpha(accent, 190), withAlpha(accent, 0)},
-                null, Shader.TileMode.CLAMP));
-        canvas.drawRect(0, 0, BACKDROP_WIDTH, BACKDROP_HEIGHT, paint);
-        paint.setShader(new RadialGradient(BACKDROP_WIDTH * 0.18f, BACKDROP_HEIGHT * 0.88f,
-                BACKDROP_WIDTH * 0.60f, new int[]{0x775B4A9A, 0x00231D60},
-                null, Shader.TileMode.CLAMP));
-        canvas.drawRect(0, 0, BACKDROP_WIDTH, BACKDROP_HEIGHT, paint);
-        paint.setShader(null);
-
-        Drawable artwork = item.art;
-        if (artwork.getConstantState() != null) artwork = artwork.getConstantState().newDrawable().mutate();
-        int artWidth = item.banner ? 300 : 188;
-        int artHeight = item.banner ? 170 : 188;
-        int left = (BACKDROP_WIDTH - artWidth) / 2;
-        int top = (BACKDROP_HEIGHT - artHeight) / 2;
-        artwork.setBounds(left, top, left + artWidth, top + artHeight);
-        artwork.setAlpha(215);
-        canvas.save();
-        canvas.rotate(-7f, BACKDROP_WIDTH / 2f, BACKDROP_HEIGHT / 2f);
-        artwork.draw(canvas);
-        canvas.restore();
-        artwork.setAlpha(255);
+        render.setBounds(0, 0, size, size);
+        render.draw(canvas);
+        render.setBounds(oldLeft, oldTop, oldRight, oldBottom);
         return bitmap;
     }
 
-    private int extractAccent(Drawable drawable) {
-        Bitmap sample = Bitmap.createBitmap(40, 40, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(sample);
-        Drawable copy = drawable;
-        if (drawable.getConstantState() != null) copy = drawable.getConstantState().newDrawable().mutate();
-        copy.setBounds(0, 0, 40, 40);
-        copy.draw(canvas);
-        long red = 0, green = 0, blue = 0, count = 0;
-        for (int y = 0; y < 40; y += 2) {
-            for (int x = 0; x < 40; x += 2) {
-                int color = sample.getPixel(x, y);
-                if (Color.alpha(color) < 50) continue;
-                int max = Math.max(Color.red(color), Math.max(Color.green(color), Color.blue(color)));
-                int min = Math.min(Color.red(color), Math.min(Color.green(color), Color.blue(color)));
-                if (max - min < 22 || max < 70) continue;
-                red += Color.red(color); green += Color.green(color); blue += Color.blue(color); count++;
+    private void saveBackdropToDisk(Bitmap bitmap, File file) {
+        if (bitmap == null || bitmap.isRecycled() || file == null) return;
+        FileOutputStream output = null;
+        try {
+            File parent = file.getParentFile();
+            if (parent != null && !parent.exists()) parent.mkdirs();
+            output = new FileOutputStream(file);
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, output);
+            output.flush();
+        } catch (Exception error) {
+            android.util.Log.w("TvLauncher", "Could not save app backdrop cache", error);
+        } finally {
+            if (output != null) {
+                try { output.close(); } catch (Exception ignored) { }
             }
         }
-        sample.recycle();
-        if (count == 0) return 0xFF6484D8;
-        return Color.rgb((int)(red / count), (int)(green / count), (int)(blue / count));
+    }
+
+    private Bitmap makeDreamyGradient(Bitmap icon) {
+        int[] palette = extractPalette(icon);
+        Bitmap bitmap = Bitmap.createBitmap(BACKDROP_WIDTH, BACKDROP_HEIGHT, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+
+        int darkA = darken(palette[0], 0.24f);
+        int darkB = darken(palette[1], 0.20f);
+        int darkC = darken(palette[2], 0.25f);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        paint.setShader(new LinearGradient(0, 0, BACKDROP_WIDTH, BACKDROP_HEIGHT,
+                new int[]{darkA, 0xFF101326, darkB, darkC},
+                new float[]{0f, 0.38f, 0.72f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, BACKDROP_WIDTH, BACKDROP_HEIGHT, paint);
+
+        drawColorGlow(canvas, palette[0], BACKDROP_WIDTH * 0.18f,
+                BACKDROP_HEIGHT * 0.30f, BACKDROP_WIDTH * 0.78f);
+        drawColorGlow(canvas, palette[1], BACKDROP_WIDTH * 0.77f,
+                BACKDROP_HEIGHT * 0.30f, BACKDROP_WIDTH * 0.72f);
+        drawColorGlow(canvas, palette[2], BACKDROP_WIDTH * 0.55f,
+                BACKDROP_HEIGHT * 0.94f, BACKDROP_WIDTH * 0.82f);
+        drawColorGlow(canvas, palette[3], BACKDROP_WIDTH * 0.98f,
+                BACKDROP_HEIGHT * 0.88f, BACKDROP_WIDTH * 0.56f);
+
+        paint.setShader(new LinearGradient(0, 0, 0, BACKDROP_HEIGHT,
+                new int[]{0x12000000, 0x00000000, 0x55040A18},
+                null, Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, BACKDROP_WIDTH, BACKDROP_HEIGHT, paint);
+        paint.setShader(null);
+        return bitmap;
+    }
+
+    private void drawColorGlow(Canvas canvas, int color, float centerX, float centerY, float radius) {
+        Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
+        glow.setShader(new RadialGradient(centerX, centerY, radius,
+                new int[]{withAlpha(color, 190), withAlpha(color, 88), withAlpha(color, 0)},
+                new float[]{0f, 0.42f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, BACKDROP_WIDTH, BACKDROP_HEIGHT, glow);
+        glow.setShader(null);
+    }
+
+    private int[] extractPalette(Bitmap icon) {
+        final int bins = 4096;
+        int[] weights = new int[bins];
+        long[] red = new long[bins];
+        long[] green = new long[bins];
+        long[] blue = new long[bins];
+
+        for (int y = 0; y < icon.getHeight(); y += 2) {
+            for (int x = 0; x < icon.getWidth(); x += 2) {
+                int color = icon.getPixel(x, y);
+                if (Color.alpha(color) < 80) continue;
+                int r = Color.red(color);
+                int g = Color.green(color);
+                int b = Color.blue(color);
+                int max = Math.max(r, Math.max(g, b));
+                int min = Math.min(r, Math.min(g, b));
+                if (max < 48 || max - min < 18) continue;
+
+                int weight = 1 + (max - min) / 72;
+                int index = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+                weights[index] += weight;
+                red[index] += (long)r * weight;
+                green[index] += (long)g * weight;
+                blue[index] += (long)b * weight;
+            }
+        }
+
+        int[] palette = new int[4];
+        boolean[] used = new boolean[bins];
+        int selected = 0;
+        for (int slot = 0; slot < palette.length; slot++) {
+            int bestIndex = -1;
+            double bestScore = 0;
+            for (int i = 0; i < bins; i++) {
+                if (used[i] || weights[i] == 0) continue;
+                int candidate = Color.rgb((int)(red[i] / weights[i]),
+                        (int)(green[i] / weights[i]), (int)(blue[i] / weights[i]));
+                double separation = 1.0;
+                for (int j = 0; j < selected; j++) {
+                    int distance = colorDistance(candidate, palette[j]);
+                    separation = Math.min(separation, Math.min(1.0, distance / 130.0));
+                }
+                double score = weights[i] * (selected == 0 ? 1.0 : 0.25 + 0.75 * separation);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestIndex = i;
+                }
+            }
+            if (bestIndex < 0) break;
+            used[bestIndex] = true;
+            palette[selected++] = Color.rgb((int)(red[bestIndex] / weights[bestIndex]),
+                    (int)(green[bestIndex] / weights[bestIndex]),
+                    (int)(blue[bestIndex] / weights[bestIndex]));
+        }
+
+        if (selected == 0) {
+            palette[0] = 0xFF5278D8;
+            palette[1] = 0xFF9664D5;
+            palette[2] = 0xFF28A4B4;
+            palette[3] = 0xFFD96B83;
+        } else {
+            if (selected < 2) palette[1] = blendColors(palette[0], 0xFF7768D8, 0.42f);
+            if (selected < 3) palette[2] = blendColors(palette[0], 0xFF28A4B4, 0.38f);
+            if (selected < 4) palette[3] = blendColors(palette[0], 0xFFD96B83, 0.34f);
+        }
+        return palette;
+    }
+
+    private int colorDistance(int first, int second) {
+        int dr = Color.red(first) - Color.red(second);
+        int dg = Color.green(first) - Color.green(second);
+        int db = Color.blue(first) - Color.blue(second);
+        return (int)Math.sqrt(dr * dr + dg * dg + db * db);
+    }
+
+    private int blendColors(int first, int second, float amount) {
+        float inverse = 1f - amount;
+        return Color.rgb(
+                Math.round(Color.red(first) * inverse + Color.red(second) * amount),
+                Math.round(Color.green(first) * inverse + Color.green(second) * amount),
+                Math.round(Color.blue(first) * inverse + Color.blue(second) * amount));
     }
 
     private int darken(int color, float factor) {
