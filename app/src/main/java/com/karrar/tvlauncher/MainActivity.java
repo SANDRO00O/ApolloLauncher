@@ -11,6 +11,7 @@ import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -47,6 +48,8 @@ import android.widget.TextClock;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -73,6 +76,8 @@ public class MainActivity extends Activity {
     private static final int REQUEST_WALLPAPER = 4102;
     private static final int BACKDROP_WIDTH = 384;
     private static final int BACKDROP_HEIGHT = 216;
+    private static final Uri WEATHER_URI = Uri.parse("content://cn.zeasn.weather.query");
+    private static final long WEATHER_REFRESH_INTERVAL_MS = 30L * 60L * 1000L;
 
     private static final String[] HIDDEN = {
             "com.cultraview.agingmodel", "com.ctvdevicemanger", "com.example.upgrad"
@@ -104,6 +109,12 @@ public class MainActivity extends Activity {
         Intent intent;
     }
 
+    private static class WeatherInfo {
+        String temperature;
+        String condition;
+        int icon;
+    }
+
     private float density;
     private SharedPreferences preferences;
     private FrameLayout root;
@@ -113,6 +124,12 @@ public class MainActivity extends Activity {
     private HorizontalScrollView appsScroller;
     private TextView selectedTitle;
     private TextView appSectionLabel;
+    private TextView weatherTemperature;
+    private TextView weatherCondition;
+    private WeatherGlyph weatherGlyph;
+    private boolean weatherRequestRunning;
+    private boolean weatherLoaded;
+    private boolean activityDestroyed;
     private Typeface latinTypeface;
     private Typeface arabicTypeface;
     private Typeface clockTypeface;
@@ -120,6 +137,14 @@ public class MainActivity extends Activity {
     private boolean receiverRegistered;
     private volatile int blurRequest = 0;
     private final Handler mainHandler = new Handler();
+    private final Runnable weatherRefreshRunnable = new Runnable() {
+        @Override public void run() {
+            refreshWeather();
+            if (!activityDestroyed) {
+                mainHandler.postDelayed(this, WEATHER_REFRESH_INTERVAL_MS);
+            }
+        }
+    };
     private final ThreadPoolExecutor blurExecutor = new ThreadPoolExecutor(
             1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
     private final LruCache<String, Bitmap> blurredBackdrops = new LruCache<String, Bitmap>(5 * 1024) {
@@ -150,6 +175,8 @@ public class MainActivity extends Activity {
         registerPackageReceiver();
         loadApps();
         restoreWallpaper();
+        refreshWeather();
+        mainHandler.postDelayed(weatherRefreshRunnable, WEATHER_REFRESH_INTERVAL_MS);
     }
 
     private void loadTypefaces() {
@@ -184,26 +211,44 @@ public class MainActivity extends Activity {
         topBar.setGravity(Gravity.CENTER_VERTICAL);
         topBar.setPadding(dp(48), dp(22), dp(48), 0);
 
-        LinearLayout brand = new LinearLayout(this);
-        brand.setOrientation(LinearLayout.HORIZONTAL);
-        brand.setGravity(Gravity.CENTER_VERTICAL);
-        TextView brandMark = new TextView(this);
-        brandMark.setText("TV");
-        brandMark.setTextColor(Color.WHITE);
-        brandMark.setTypeface(latinTypeface, Typeface.BOLD);
-        brandMark.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
-        brandMark.setGravity(Gravity.CENTER);
-        brandMark.setBackground(roundRect(0x42FFFFFF, 0x55FFFFFF, 12));
-        brand.addView(brandMark, new LinearLayout.LayoutParams(dp(42), dp(34)));
-        TextView brandName = new TextView(this);
-        brandName.setText(text("  LIVING ROOM", "  غرفة المعيشة"));
-        brandName.setTextColor(0xDFFFFFFF);
-        brandName.setTextDirection(View.TEXT_DIRECTION_LOCALE);
-        brandName.setTypeface(typefaceFor(brandName.getText().toString()));
-        brandName.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        brandName.setLetterSpacing(isArabicLocale() ? 0f : 0.14f);
-        brand.addView(brandName);
-        topBar.addView(brand, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        // Live weather supplied by the TV's built-in Zeasn General Services provider.
+        LinearLayout weatherPanel = new LinearLayout(this);
+        weatherPanel.setOrientation(LinearLayout.HORIZONTAL);
+        weatherPanel.setGravity(Gravity.CENTER_VERTICAL);
+        weatherPanel.setClipChildren(false);
+
+        weatherGlyph = new WeatherGlyph(this);
+        LinearLayout.LayoutParams weatherIconParams = new LinearLayout.LayoutParams(dp(38), dp(38));
+        if (isArabicLocale()) weatherIconParams.rightMargin = dp(10);
+        else weatherIconParams.leftMargin = dp(10);
+        weatherPanel.addView(weatherGlyph, weatherIconParams);
+
+        LinearLayout weatherText = new LinearLayout(this);
+        weatherText.setOrientation(LinearLayout.VERTICAL);
+        weatherText.setGravity(isArabicLocale() ? Gravity.RIGHT : Gravity.LEFT);
+        weatherTemperature = new TextView(this);
+        weatherTemperature.setText("--°");
+        weatherTemperature.setTextColor(Color.WHITE);
+        weatherTemperature.setTypeface(clockTypeface);
+        weatherTemperature.setTextSize(TypedValue.COMPLEX_UNIT_SP, 25);
+        weatherTemperature.setSingleLine(true);
+        weatherTemperature.setTextDirection(View.TEXT_DIRECTION_LTR);
+        weatherText.addView(weatherTemperature, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        weatherCondition = new TextView(this);
+        weatherCondition.setText(text("Loading weather…", "جارٍ تحميل الطقس…"));
+        weatherCondition.setTextColor(0xDFFFFFFF);
+        weatherCondition.setTypeface(typefaceForLocale());
+        weatherCondition.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        weatherCondition.setSingleLine(true);
+        weatherCondition.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        weatherCondition.setTextDirection(View.TEXT_DIRECTION_LOCALE);
+        weatherText.addView(weatherCondition, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        weatherPanel.addView(weatherText);
+
+        topBar.addView(weatherPanel, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -351,6 +396,88 @@ public class MainActivity extends Activity {
 
     private String text(String english, String arabic) {
         return isArabicLocale() ? arabic : english;
+    }
+
+    private void refreshWeather() {
+        if (weatherRequestRunning || activityDestroyed) return;
+        weatherRequestRunning = true;
+
+        new AsyncTask<Void, Void, WeatherInfo>() {
+            @Override
+            protected WeatherInfo doInBackground(Void... ignored) {
+                Cursor cursor = null;
+                try {
+                    cursor = getContentResolver().query(WEATHER_URI, null, null, null, null);
+                    if (cursor == null || !cursor.moveToFirst()) return null;
+
+                    int column = cursor.getColumnIndex("forecasts");
+                    if (column < 0 && cursor.getColumnCount() > 0) column = 0;
+                    if (column < 0) return null;
+
+                    String json = cursor.getString(column);
+                    if (json == null || json.length() == 0) return null;
+
+                    JSONObject data = new JSONObject(json);
+                    String temperature = data.optString("currentTemperature", "");
+                    String condition = data.optString("weatherText", "");
+                    if (temperature.length() == 0 || "null".equalsIgnoreCase(temperature)) return null;
+
+                    WeatherInfo info = new WeatherInfo();
+                    info.temperature = temperature + "\u00B0";
+                    info.condition = condition;
+                    info.icon = data.optInt("weatherIcon", -1);
+                    return info;
+                } catch (Exception ignoredError) {
+                    return null;
+                } finally {
+                    if (cursor != null) {
+                        try { cursor.close(); } catch (Exception ignoredClose) { }
+                    }
+                }
+            }
+
+            @Override
+            protected void onPostExecute(WeatherInfo info) {
+                weatherRequestRunning = false;
+                if (activityDestroyed || weatherTemperature == null || weatherCondition == null) return;
+
+                if (info != null) {
+                    weatherTemperature.setText(info.temperature);
+                    weatherCondition.setText(localizeWeatherCondition(info.condition));
+                    if (weatherGlyph != null) weatherGlyph.setCondition(info.condition, info.icon);
+                    weatherLoaded = true;
+                } else if (!weatherLoaded) {
+                    weatherTemperature.setText("--°");
+                    weatherCondition.setText(text("Weather unavailable", "الطقس غير متاح"));
+                }
+            }
+        }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    }
+
+    private String localizeWeatherCondition(String condition) {
+        if (condition == null || condition.length() == 0) {
+            return text("Current conditions", "الحالة الحالية");
+        }
+        if (!isArabicLocale()) return condition;
+        if (condition.matches("(?s).*[\\u0600-\\u06FF\\u0750-\\u077F\\u08A0-\\u08FF].*")) {
+            return condition;
+        }
+
+        String value = condition.toLowerCase(Locale.US);
+        if (value.contains("thunder")) return "عواصف رعدية";
+        if (value.contains("shower") || value.contains("rain")) return "زخات مطر";
+        if (value.contains("snow") || value.contains("sleet")) return "ثلوج";
+        if (value.contains("fog") || value.contains("mist") || value.contains("haze")) return "ضباب";
+        if (value.contains("intermittent cloud")) return "غيوم متقطعة";
+        if (value.contains("mostly cloudy")) return "غائم غالباً";
+        if (value.contains("partly cloudy")) return "غائم جزئياً";
+        if (value.contains("mostly sunny")) return "مشمس غالباً";
+        if (value.contains("partly sunny")) return "مشمس جزئياً";
+        if (value.contains("mostly clear")) return "صافٍ غالباً";
+        if (value.contains("cloud")) return "غائم";
+        if (value.contains("sunny") || value.contains("clear")) return "مشمس";
+        if (value.contains("wind")) return "عاصف";
+        return condition;
     }
 
     private GradientDrawable roundRect(int fill, int stroke, float radiusDp) {
@@ -965,10 +1092,93 @@ public class MainActivity extends Activity {
             try { unregisterReceiver(packageReceiver); } catch (Exception ignored) { }
             receiverRegistered = false;
         }
+        activityDestroyed = true;
         blurRequest++;
         blurExecutor.shutdownNow();
         mainHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
+    }
+
+    /** Compact weather glyph rendered locally so it works on Android 5.1 without emoji fonts. */
+    private class WeatherGlyph extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private String condition = "clear";
+        private int iconCode = -1;
+
+        WeatherGlyph(Context context) {
+            super(context);
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        }
+
+        void setCondition(String value, int code) {
+            condition = value == null ? "" : value.toLowerCase(Locale.US);
+            iconCode = code;
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float size = Math.min(getWidth(), getHeight());
+            float scale = size / 36f;
+            canvas.save();
+            canvas.translate((getWidth() - 36f * scale) / 2f,
+                    (getHeight() - 36f * scale) / 2f);
+            canvas.scale(scale, scale);
+
+            paint.setColor(0xFFFFD77A);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2.0f);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+
+            boolean rain = condition.contains("rain") || condition.contains("shower")
+                    || condition.contains("storm") || condition.contains("thunder");
+            boolean snow = condition.contains("snow") || condition.contains("sleet");
+            boolean cloudy = condition.contains("cloud") || rain || snow
+                    || condition.contains("fog") || condition.contains("mist");
+
+            if (!cloudy || condition.contains("sunny") || condition.contains("clear")) {
+                canvas.drawCircle(18, 14, 6, paint);
+                for (int i = 0; i < 8; i++) {
+                    double angle = Math.PI * i / 4.0;
+                    float x1 = (float)(18 + Math.cos(angle) * 9);
+                    float y1 = (float)(14 + Math.sin(angle) * 9);
+                    float x2 = (float)(18 + Math.cos(angle) * 12);
+                    float y2 = (float)(14 + Math.sin(angle) * 12);
+                    canvas.drawLine(x1, y1, x2, y2, paint);
+                }
+            }
+
+            if (cloudy) {
+                paint.setColor(Color.WHITE);
+                Path cloud = new Path();
+                cloud.moveTo(8, 26);
+                cloud.cubicTo(4, 26, 3, 22, 5, 19);
+                cloud.cubicTo(6, 16, 9, 15, 12, 16);
+                cloud.cubicTo(14, 10, 23, 9, 26, 16);
+                cloud.cubicTo(32, 15, 35, 19, 34, 23);
+                cloud.cubicTo(34, 26, 31, 28, 27, 28);
+                cloud.lineTo(9, 28);
+                cloud.cubicTo(8, 28, 8, 27, 8, 26);
+                paint.setStyle(Paint.Style.STROKE);
+                canvas.drawPath(cloud, paint);
+            }
+
+            if (rain) {
+                paint.setColor(0xFF9EDBFF);
+                canvas.drawLine(12, 30, 10, 34, paint);
+                canvas.drawLine(21, 30, 19, 34, paint);
+                canvas.drawLine(29, 30, 27, 34, paint);
+            } else if (snow) {
+                paint.setColor(0xFFE6F4FF);
+                canvas.drawCircle(12, 32, 1.2f, paint);
+                canvas.drawCircle(21, 33, 1.2f, paint);
+                canvas.drawCircle(29, 31, 1.2f, paint);
+            }
+
+            canvas.restore();
+        }
     }
 
     /** Simple custom vector line icons; no external icon pack or network dependency. */
