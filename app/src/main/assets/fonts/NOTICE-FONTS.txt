@@ -1,6 +1,13 @@
-Inter Display Thin/Medium and Noto Kufi Arabic Regular are Unicode-subsetted
-builds of the original fonts, distributed under SIL Open Font License 1.1.
-Copyright: The Inter Project Authors; Google Inc. and Google LLC.
-Sources: https://github.com/rsms/inter and
-https://github.com/google/fonts/tree/main/ofl/notokufiarabic
+Inter Display Thin/Medium and Noto Kufi Arabic Regular are distributed
+under SIL Open Font License 1.1.
+
+Manrope ExtraBold
+Copyright 2018 The Manrope Project Authors.
+Source: https://github.com/google/fonts/tree/main/ofl/manrope
+
+Weather Icons regular webfont
+By Erik Flowers; original icon design credit: Lukas Bischoff.
+Source: https://github.com/erikflowers/weather-icons
+Contains the complete 222-glyph weather icon font. Licensed under SIL OFL 1.1.
+
 See the repository's LICENSE-OFL-1.1.txt for the full license.

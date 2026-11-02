@@ -64,6 +64,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.Collections;
 import java.util.Comparator;
@@ -124,7 +125,6 @@ public class MainActivity extends Activity {
     private static class WeatherInfo {
         String temperature;
         String condition;
-        int icon;
     }
 
     private float density;
@@ -140,13 +140,14 @@ public class MainActivity extends Activity {
     private TextView weatherCondition;
     private TextView clockView;
     private TextView dateView;
-    private WeatherGlyph weatherGlyph;
+    private TextView weatherGlyph;
     private boolean weatherRequestRunning;
     private boolean weatherLoaded;
     private boolean activityDestroyed;
     private Typeface latinTypeface;
     private Typeface arabicTypeface;
     private Typeface clockTypeface;
+    private Typeface weatherIconsTypeface;
     private Item focusedItem;
     private boolean receiverRegistered;
     private volatile int blurRequest = 0;
@@ -206,7 +207,10 @@ public class MainActivity extends Activity {
     private void loadTypefaces() {
         try { latinTypeface = Typeface.createFromAsset(getAssets(), "fonts/InterDisplay-Medium.otf"); }
         catch (Exception ignored) { latinTypeface = Typeface.create("sans-serif-medium", Typeface.NORMAL); }
-        clockTypeface = Typeface.create(latinTypeface, Typeface.BOLD);
+        try { clockTypeface = Typeface.createFromAsset(getAssets(), "fonts/manrope-extrabold.ttf"); }
+        catch (Exception ignored) { clockTypeface = Typeface.create(latinTypeface, Typeface.BOLD); }
+        try { weatherIconsTypeface = Typeface.createFromAsset(getAssets(), "fonts/weathericons-regular-webfont.ttf"); }
+        catch (Exception ignored) { weatherIconsTypeface = Typeface.DEFAULT; }
         try { arabicTypeface = Typeface.createFromAsset(getAssets(), "fonts/NotoKufiArabic-Regular.ttf"); }
         catch (Exception ignored) { arabicTypeface = Typeface.create("sans-serif", Typeface.NORMAL); }
     }
@@ -260,7 +264,15 @@ public class MainActivity extends Activity {
             }
         });
 
-        weatherGlyph = new WeatherGlyph(this);
+        weatherGlyph = new TextView(this);
+        weatherGlyph.setGravity(Gravity.CENTER);
+        weatherGlyph.setText(String.valueOf((char)0xF00D));
+        weatherGlyph.setTextColor(0xFFFFD77A);
+        weatherGlyph.setTypeface(weatherIconsTypeface);
+        weatherGlyph.setTextSize(TypedValue.COMPLEX_UNIT_SP, 38);
+        weatherGlyph.setIncludeFontPadding(false);
+        weatherGlyph.setSingleLine(true);
+        weatherGlyph.setTextDirection(View.TEXT_DIRECTION_LTR);
         LinearLayout.LayoutParams weatherIconParams = new LinearLayout.LayoutParams(dp(42), dp(42));
         if (isArabicLocale()) weatherIconParams.rightMargin = dp(10);
         else weatherIconParams.leftMargin = dp(10);
@@ -293,7 +305,10 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         weatherPanel.addView(weatherText);
 
-        topBar.addView(weatherPanel, new LinearLayout.LayoutParams(0, dp(60), 1f));
+        topBar.addView(weatherPanel, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(60)));
+        View topBarSpacer = new View(this);
+        topBar.addView(topBarSpacer, new LinearLayout.LayoutParams(0, dp(1), 1f));
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -321,13 +336,11 @@ public class MainActivity extends Activity {
         clockView = new TextView(this);
         clockView.setTextColor(Color.WHITE);
         clockView.setTypeface(clockTypeface);
-        clockView.getPaint().setFakeBoldText(true);
         clockView.setTextSize(TypedValue.COMPLEX_UNIT_SP, clockSizeSp());
         clockView.setIncludeFontPadding(false);
         clockView.setGravity(Gravity.CENTER);
         clockView.setTextDirection(View.TEXT_DIRECTION_LTR);
         clockView.setLetterSpacing(0.025f);
-        clockView.setShadowLayer(dp(22), 0, dp(6), 0x99000000);
         clockView.setScaleY(1.34f);
         clockView.setScaleX(1.03f);
         clockStack.addView(clockView, new LinearLayout.LayoutParams(
@@ -340,7 +353,6 @@ public class MainActivity extends Activity {
         dateView.setIncludeFontPadding(false);
         dateView.setGravity(Gravity.CENTER);
         dateView.setLetterSpacing(0.025f);
-        dateView.setShadowLayer(dp(10), 0, dp(2), 0x88000000);
         LinearLayout.LayoutParams dateParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         dateParams.topMargin = dp(12);
@@ -359,8 +371,8 @@ public class MainActivity extends Activity {
         dock.setOrientation(LinearLayout.VERTICAL);
         dock.setPadding(dp(18), dp(12), dp(18), dp(10));
         dock.setBackground(roundRect(0x2AFFFFFF, 0x36FFFFFF, 26));
-        dock.setClipChildren(false);
-        dock.setClipToPadding(false);
+        dock.setClipChildren(true);
+        dock.setClipToPadding(true);
 
         LinearLayout heading = new LinearLayout(this);
         heading.setOrientation(LinearLayout.HORIZONTAL);
@@ -388,7 +400,8 @@ public class MainActivity extends Activity {
         appsRow.setOrientation(LinearLayout.HORIZONTAL);
         appsRow.setGravity(Gravity.CENTER_VERTICAL);
         appsRow.setClipChildren(false);
-        appsScroller = horizontalScroller(appsRow, Math.min(136, Math.max(104, (int)(screenHeightDp() * 0.23f))));
+        int appsScrollerHeight = (int)Math.min(148, Math.max(132, screenHeightDp() * 0.26f));
+        appsScroller = horizontalScroller(appsRow, appsScrollerHeight);
         LinearLayout.LayoutParams appScrollParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, appsScroller.getLayoutParams().height);
         appScrollParams.topMargin = dp(2);
@@ -540,7 +553,6 @@ public class MainActivity extends Activity {
                     WeatherInfo info = new WeatherInfo();
                     info.temperature = temperature + "\u00B0";
                     info.condition = condition;
-                    info.icon = data.optInt("weatherIcon", -1);
                     return info;
                 } catch (Exception ignoredError) {
                     return null;
@@ -559,7 +571,10 @@ public class MainActivity extends Activity {
                 if (info != null) {
                     weatherTemperature.setText(formatDigits(info.temperature));
                     weatherCondition.setText(formatDigits(localizeWeatherCondition(info.condition)));
-                    if (weatherGlyph != null) weatherGlyph.setCondition(info.condition, info.icon);
+                    if (weatherGlyph != null) {
+                        weatherGlyph.setText(weatherIconForCondition(info.condition));
+                        weatherGlyph.setContentDescription(localizeWeatherCondition(info.condition));
+                    }
                     weatherLoaded = true;
                 } else if (!weatherLoaded) {
                     weatherTemperature.setText("--°");
@@ -593,6 +608,43 @@ public class MainActivity extends Activity {
         if (value.contains("sunny") || value.contains("clear")) return "مشمس";
         if (value.contains("wind")) return "عاصف";
         return condition;
+    }
+
+    private String weatherIconForCondition(String condition) {
+        String value = condition == null ? "" : condition.toLowerCase(Locale.US);
+        int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        boolean night = hour < 6 || hour >= 18;
+        int code;
+
+        if (value.contains("thunder") || value.contains("storm")) {
+            code = night ? 0xF02D : 0xF010;
+        } else if (value.contains("hail")) {
+            code = 0xF015;
+        } else if (value.contains("sleet")) {
+            code = night ? 0xF0B4 : 0xF0B2;
+        } else if (value.contains("snow")) {
+            code = night ? 0xF02A : 0xF00A;
+        } else if (value.contains("drizzle")) {
+            code = night ? 0xF02B : 0xF00B;
+        } else if (value.contains("shower")) {
+            code = night ? 0xF029 : 0xF009;
+        } else if (value.contains("rain")) {
+            code = night ? 0xF028 : 0xF008;
+        } else if (value.contains("fog") || value.contains("mist")
+                || value.contains("haze")) {
+            code = value.contains("haze") && !night ? 0xF0B6 : (night ? 0xF04A : 0xF003);
+        } else if (value.contains("wind") || value.contains("breez")) {
+            code = 0xF050;
+        } else if (value.contains("partly") || value.contains("intermittent cloud")) {
+            code = night ? 0xF086 : 0xF002;
+        } else if (value.contains("cloud") || value.contains("overcast")) {
+            code = night ? 0xF031 : 0xF013;
+        } else if (value.contains("sunny") || value.contains("clear")) {
+            code = night ? 0xF02E : 0xF00D;
+        } else {
+            code = 0xF07B;
+        }
+        return String.valueOf((char) code);
     }
 
     private GradientDrawable roundRect(int fill, int stroke, float radiusDp) {
@@ -645,11 +697,12 @@ public class MainActivity extends Activity {
     private HorizontalScrollView horizontalScroller(LinearLayout row, int heightDp) {
         HorizontalScrollView scroller = new HorizontalScrollView(this);
         scroller.setHorizontalScrollBarEnabled(false);
-        scroller.setClipChildren(false);
-        scroller.setClipToPadding(false);
+        scroller.setClipChildren(true);
+        scroller.setClipToPadding(true);
         scroller.setFillViewport(false);
         scroller.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        scroller.setPadding(dp(6), dp(8), dp(6), dp(8));
+        int verticalPadding = heightDp <= 64 ? 4 : 12;
+        scroller.setPadding(dp(8), dp(verticalPadding), dp(8), dp(verticalPadding));
         scroller.addView(row, new HorizontalScrollView.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
         scroller.setLayoutParams(new LinearLayout.LayoutParams(
@@ -727,6 +780,8 @@ public class MainActivity extends Activity {
         row.setFocusable(true);
         row.setClickable(true);
         row.setMinimumHeight(dp(58));
+        row.setClipChildren(false);
+        row.setClipToPadding(false);
 
         LineIcon icon = new LineIcon(this, iconKind);
         row.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
@@ -758,8 +813,8 @@ public class MainActivity extends Activity {
             @Override public void onFocusChange(View view, boolean focused) {
                 view.setBackground(roundRect(focused ? 0x42FFFFFF : 0x18FFFFFF,
                         focused ? 0xAFFFFFFF : 0x24FFFFFF, 14));
-                view.setScaleX(focused ? 1.02f : 1f);
-                view.setScaleY(focused ? 1.02f : 1f);
+                // Focus is shown by the background only; no scaling outside the dialog bounds.
+
             }
         });
         row.setOnClickListener(new View.OnClickListener() {
@@ -770,7 +825,7 @@ public class MainActivity extends Activity {
         });
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rowParams.setMargins(0, dp(4), 0, dp(4));
+        rowParams.setMargins(dp(4), dp(5), dp(4), dp(5));
         container.addView(row, rowParams);
     }
 
@@ -782,7 +837,9 @@ public class MainActivity extends Activity {
 
         LinearLayout options = new LinearLayout(this);
         options.setOrientation(LinearLayout.VERTICAL);
-        options.setPadding(dp(12), dp(8), dp(12), dp(8));
+        options.setPadding(dp(8), dp(4), dp(8), dp(4));
+        options.setClipChildren(false);
+        options.setClipToPadding(false);
 
         addOptionRow(options, dialog, 9,
                 text("Hide app", "إخفاء التطبيق"),
@@ -813,6 +870,10 @@ public class MainActivity extends Activity {
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setClipChildren(true);
+        scroll.setClipToPadding(true);
+        scroll.setPadding(dp(6), dp(4), dp(6), dp(8));
         scroll.addView(options);
         dialog.setView(scroll);
         dialog.show();
@@ -833,7 +894,9 @@ public class MainActivity extends Activity {
                 .create();
         LinearLayout options = new LinearLayout(this);
         options.setOrientation(LinearLayout.VERTICAL);
-        options.setPadding(dp(12), dp(8), dp(12), dp(8));
+        options.setPadding(dp(8), dp(4), dp(8), dp(4));
+        options.setClipChildren(false);
+        options.setClipToPadding(false);
 
         PackageManager pm = getPackageManager();
         for (final String packageName : hidden) {
@@ -854,6 +917,10 @@ public class MainActivity extends Activity {
                     });
         }
         ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setClipChildren(true);
+        scroll.setClipToPadding(true);
+        scroll.setPadding(dp(6), dp(4), dp(6), dp(8));
         scroll.addView(options);
         dialog.setView(scroll);
         dialog.show();
@@ -989,9 +1056,9 @@ public class MainActivity extends Activity {
         });
         tile.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override public void onFocusChange(View view, boolean hasFocus) {
-                view.animate().scaleX(hasFocus ? 1.10f : 1f).scaleY(hasFocus ? 1.10f : 1f)
-                        .translationY(hasFocus ? -dp(7) : 0)
-                        .translationZ(hasFocus ? dp(16) : 0).setDuration(170).start();
+                view.animate().scaleX(hasFocus ? 1.035f : 1f).scaleY(hasFocus ? 1.035f : 1f)
+                        .translationY(0)
+                        .translationZ(hasFocus ? dp(8) : 0).setDuration(170).start();
                 view.setBackground(appTileBackground(item, hasFocus));
                 if (hasFocus) {
                     focusedItem = item;
@@ -1050,7 +1117,7 @@ public class MainActivity extends Activity {
         });
         tile.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override public void onFocusChange(View view, boolean focused) {
-                view.animate().scaleX(focused ? 1.06f : 1f).scaleY(focused ? 1.06f : 1f)
+                view.animate().scaleX(focused ? 1.035f : 1f).scaleY(focused ? 1.035f : 1f)
                         .setDuration(140).start();
                 view.setBackground(roundRect(focused ? 0x50FFFFFF : 0x20FFFFFF,
                         focused ? 0xBFFFFFFF : 0x32FFFFFF, 20));
@@ -1442,88 +1509,6 @@ public class MainActivity extends Activity {
 
         @Override public void updateMeasureState(TextPaint paint) {
             paint.setTypeface(typeface);
-        }
-    }
-
-    /** Compact weather glyph rendered locally so it works on Android 5.1 without emoji fonts. */
-    private class WeatherGlyph extends View {
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private String condition = "clear";
-        private int iconCode = -1;
-
-        WeatherGlyph(Context context) {
-            super(context);
-            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
-        }
-
-        void setCondition(String value, int code) {
-            condition = value == null ? "" : value.toLowerCase(Locale.US);
-            iconCode = code;
-            invalidate();
-        }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-            super.onDraw(canvas);
-            float size = Math.min(getWidth(), getHeight());
-            float scale = size / 36f;
-            canvas.save();
-            canvas.translate((getWidth() - 36f * scale) / 2f,
-                    (getHeight() - 36f * scale) / 2f);
-            canvas.scale(scale, scale);
-
-            paint.setColor(0xFFFFD77A);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2.0f);
-            paint.setStrokeCap(Paint.Cap.ROUND);
-            paint.setStrokeJoin(Paint.Join.ROUND);
-
-            boolean rain = condition.contains("rain") || condition.contains("shower")
-                    || condition.contains("storm") || condition.contains("thunder");
-            boolean snow = condition.contains("snow") || condition.contains("sleet");
-            boolean cloudy = condition.contains("cloud") || rain || snow
-                    || condition.contains("fog") || condition.contains("mist");
-
-            if (!cloudy || condition.contains("sunny") || condition.contains("clear")) {
-                canvas.drawCircle(18, 14, 6, paint);
-                for (int i = 0; i < 8; i++) {
-                    double angle = Math.PI * i / 4.0;
-                    float x1 = (float)(18 + Math.cos(angle) * 9);
-                    float y1 = (float)(14 + Math.sin(angle) * 9);
-                    float x2 = (float)(18 + Math.cos(angle) * 12);
-                    float y2 = (float)(14 + Math.sin(angle) * 12);
-                    canvas.drawLine(x1, y1, x2, y2, paint);
-                }
-            }
-
-            if (cloudy) {
-                paint.setColor(Color.WHITE);
-                Path cloud = new Path();
-                cloud.moveTo(8, 26);
-                cloud.cubicTo(4, 26, 3, 22, 5, 19);
-                cloud.cubicTo(6, 16, 9, 15, 12, 16);
-                cloud.cubicTo(14, 10, 23, 9, 26, 16);
-                cloud.cubicTo(32, 15, 35, 19, 34, 23);
-                cloud.cubicTo(34, 26, 31, 28, 27, 28);
-                cloud.lineTo(9, 28);
-                cloud.cubicTo(8, 28, 8, 27, 8, 26);
-                paint.setStyle(Paint.Style.STROKE);
-                canvas.drawPath(cloud, paint);
-            }
-
-            if (rain) {
-                paint.setColor(0xFF9EDBFF);
-                canvas.drawLine(12, 30, 10, 34, paint);
-                canvas.drawLine(21, 30, 19, 34, paint);
-                canvas.drawLine(29, 30, 27, 34, paint);
-            } else if (snow) {
-                paint.setColor(0xFFE6F4FF);
-                canvas.drawCircle(12, 32, 1.2f, paint);
-                canvas.drawCircle(21, 33, 1.2f, paint);
-                canvas.drawCircle(29, 31, 1.2f, paint);
-            }
-
-            canvas.restore();
         }
     }
 
