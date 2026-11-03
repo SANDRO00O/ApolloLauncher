@@ -9,6 +9,10 @@ android {
     namespace 'com.karrar.tvlauncher'
     compileSdk 33
 
+    lint {
+        disable += ["ExpiredTargetSdkVersion"]
+    }
+
     defaultConfig {
         applicationId 'com.karrar.tvlauncher'
         minSdk 21
