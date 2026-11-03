@@ -120,7 +120,10 @@ jobs:
             --output "$ENCRYPTED_FILE" "$BUNDLE_FILE"
 
           test -s "$ENCRYPTED_FILE"
-          sha256sum "$ENCRYPTED_FILE" > "$ENCRYPTED_FILE.sha256"
+          (
+            cd "$RUNNER_TEMP"
+            sha256sum "ApolloLauncher-signing-key.tar.gz.age" > "ApolloLauncher-signing-key.tar.gz.age.sha256"
+          )
 
           rm -f "$BUNDLE_FILE" "$KEYSTORE_FILE" "$CREDENTIALS_FILE" "$RECIPIENT_FILE"
 
