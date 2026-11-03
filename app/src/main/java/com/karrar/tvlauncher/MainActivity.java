@@ -206,6 +206,7 @@ public class MainActivity extends Activity {
 
         loadTypefaces();
         buildInterface();
+        showSplashScreen();
         registerPackageReceiver();
         loadApps();
         restoreWallpaper();
@@ -449,6 +450,37 @@ public class MainActivity extends Activity {
         root.addView(dock, dockParams);
 
         setContentView(root);
+    }
+
+    private void showSplashScreen() {
+        final FrameLayout splash = new FrameLayout(this);
+        splash.setBackgroundColor(0xFF070B18);
+        splash.setFocusable(true);
+        splash.setFocusableInTouchMode(true);
+        splash.setClickable(true);
+
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.apollolauncher_logo);
+        logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        int logoWidth = Math.min((int)(getResources().getDisplayMetrics().widthPixels * 0.68f), dp(680));
+        FrameLayout.LayoutParams logoParams = new FrameLayout.LayoutParams(logoWidth, dp(150), Gravity.CENTER);
+        splash.addView(logo, logoParams);
+
+        root.addView(splash, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        splash.requestFocus();
+
+        mainHandler.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (activityDestroyed || root == null || splash.getParent() != root) return;
+                splash.animate().alpha(0f).setDuration(280).withEndAction(new Runnable() {
+                    @Override public void run() {
+                        if (root != null) root.removeView(splash);
+                        if (appsRow != null && appsRow.getChildCount() > 0) appsRow.getChildAt(0).requestFocus();
+                    }
+                }).start();
+            }
+        }, 950L);
     }
 
     private int clockSizeSp() {
