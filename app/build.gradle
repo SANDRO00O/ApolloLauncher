@@ -1,5 +1,7 @@
 plugins { id 'com.android.application' }
 
+def configuredVersionCode = (System.getenv("VERSION_CODE") ?: "2").toInteger()
+def configuredVersionName = System.getenv("VERSION_NAME") ?: "2.0"
 def releaseKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
 def releaseSigningEnabled = releaseKeystorePath != null && !releaseKeystorePath.trim().isEmpty()
 
@@ -11,8 +13,8 @@ android {
         applicationId 'com.karrar.tvlauncher'
         minSdk 21
         targetSdk 22
-        versionCode (System.getenv("VERSION_CODE") ?: "2").toInteger()
-        versionName = System.getenv("VERSION_NAME") ?: "2.0"
+        versionCode = configuredVersionCode
+        versionName = configuredVersionName
     }
 
     signingConfigs {
