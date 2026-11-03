@@ -3,3 +3,10 @@ build/
 local.properties
 *.iml
 .idea/
+
+# Android release-signing material: never commit private keys or encrypted key bundles.
+*.jks
+*.keystore
+*.age
+GITHUB-SECRETS.txt
+ApolloLauncher-signing-key*.tar.gz
