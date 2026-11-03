@@ -73,7 +73,7 @@ The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`; the r
 
 ## Publish a release
 
-1. Configure the one-time signing secrets described in [RELEASE-SETUP.md](RELEASE-SETUP.md).
+1. Run [ApolloLauncher Create Signing Key](https://github.com/SANDRO00O/ApolloLauncher/actions/workflows/create-signing-key.yml) once and follow [RELEASE-SETUP.md](RELEASE-SETUP.md) to decrypt the bundle and configure the signing secrets.
 2. Push a version tag such as `v2.0.0`, or run **Actions → ApolloLauncher Release → Run workflow** and enter the version.
 3. The workflow builds and signs the release APK, creates a GitHub Release with generated notes, and attaches the APK and its SHA-256 checksum.
 
