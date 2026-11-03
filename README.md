@@ -79,10 +79,6 @@ The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`; the r
 
 The regular **ApolloLauncher Build** workflow continues to publish debug APK artifacts for testing.
 
-## Application ID
-
-The Android application ID remains `com.karrar.tvlauncher` so existing installations retain the same package identity.
-
 ## Font licences
 
 The bundled Inter Display and Noto Kufi Arabic fonts are distributed under the SIL Open Font License 1.1. See [NOTICE-FONTS.txt](NOTICE-FONTS.txt) and [LICENSE-OFL-1.1.txt](LICENSE-OFL-1.1.txt).
