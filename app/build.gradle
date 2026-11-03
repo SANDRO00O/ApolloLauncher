@@ -1,15 +1,40 @@
 plugins { id 'com.android.application' }
+
+def releaseKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+def releaseSigningEnabled = releaseKeystorePath != null && !releaseKeystorePath.trim().isEmpty()
+
 android {
     namespace 'com.karrar.tvlauncher'
     compileSdk 33
+
     defaultConfig {
         applicationId 'com.karrar.tvlauncher'
         minSdk 21
         targetSdk 22
-        versionCode 2
-        versionName '2.0'
+        versionCode (System.getenv("VERSION_CODE") ?: "2").toInteger()
+        versionName = System.getenv("VERSION_NAME") ?: "2.0"
     }
-    buildTypes { release { minifyEnabled false } }
+
+    signingConfigs {
+        if (releaseSigningEnabled) {
+            release {
+                storeFile file(releaseKeystorePath)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (releaseSigningEnabled) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8

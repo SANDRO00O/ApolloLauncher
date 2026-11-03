@@ -1,0 +1,166 @@
+name: ApolloLauncher Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag (for example v2.0.0)"
+        required: true
+        type: string
+      prerelease:
+        description: "Publish this as a prerelease"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apollolauncher-release-${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish signed APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref || 'main' }}
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "7.6.4"
+
+      - name: Validate release version
+        id: version
+        shell: bash
+        env:
+          RELEASE_VERSION_INPUT: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$RELEASE_VERSION_INPUT" =~ ^v[0-9]+[.][0-9]+[.][0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Use a semantic version tag such as v2.0.0 or v2.1.0-beta.1"
+            exit 1
+          fi
+
+          VERSION_NAME="${RELEASE_VERSION_INPUT#v}"
+          VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
+
+          echo "tag_name=$RELEASE_VERSION_INPUT" >> "$GITHUB_OUTPUT"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+
+          echo "Building ApolloLauncher $VERSION_NAME (versionCode $VERSION_CODE)"
+
+      - name: Validate and decode release keystore
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          for secret_name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!secret_name}" ]]; then
+              echo "::error::Missing GitHub Actions secret: $secret_name. Follow RELEASE-SETUP.md before publishing a release."
+              exit 1
+            fi
+          done
+
+          KEYSTORE_FILE="$RUNNER_TEMP/apollo-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_FILE"
+          test -s "$KEYSTORE_FILE"
+
+          keytool -list -keystore "$KEYSTORE_FILE" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" >/dev/null
+
+          echo "Release keystore validated."
+
+      - name: Build signed release APK
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/apollo-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: gradle assembleRelease
+
+      - name: Package APK and checksum
+        id: package
+        shell: bash
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+        run: |
+          set -euo pipefail
+
+          SOURCE_APK="app/build/outputs/apk/release/app-release.apk"
+          test -s "$SOURCE_APK"
+
+          APK_NAME="ApolloLauncher-${VERSION_NAME}.apk"
+          cp "$SOURCE_APK" "$APK_NAME"
+
+          jarsigner -verify "$APK_NAME" >/dev/null
+
+          CHECKSUM_NAME="$APK_NAME.sha256"
+          sha256sum "$APK_NAME" > "$CHECKSUM_NAME"
+
+          echo "apk_path=$APK_NAME" >> "$GITHUB_OUTPUT"
+          echo "checksum_path=$CHECKSUM_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ApolloLauncher-release-${{ steps.version.outputs.version_name }}
+          path: |
+            ${{ steps.package.outputs.apk_path }}
+            ${{ steps.package.outputs.checksum_path }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag_name }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          APK_PATH: ${{ steps.package.outputs.apk_path }}
+          CHECKSUM_PATH: ${{ steps.package.outputs.checksum_path }}
+          IS_PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_args=(
+            "$RELEASE_TAG"
+            "$APK_PATH"
+            "$CHECKSUM_PATH"
+            --title "ApolloLauncher $VERSION_NAME"
+            --generate-notes
+            --target main
+          )
+
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            release_args+=(--prerelease --latest=false)
+          fi
+
+          gh release create "${release_args[@]}"
+          gh release view "$RELEASE_TAG" --json url,name,isDraft,isPrerelease
