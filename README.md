@@ -1,45 +1,78 @@
-# TV Launcher — tvOS-inspired redesign
+<p align="center">
+  <img src="assets/apollolauncher-logo.svg" alt="ApolloLauncher" width="760" />
+</p>
 
-This archive is a **source overlay** for `SANDRO00O/tvluncher`, not a complete standalone repository. Extract the contents of the `tvluncher-redesign/` folder over the root of your existing clone; matching files are replacements and the new assets are added.
+<p align="center">
+  <a href="https://github.com/SANDRO00O/tvluncher/actions/workflows/build.yml"><img src="https://github.com/SANDRO00O/tvluncher/actions/workflows/build.yml/badge.svg" alt="Build status" /></a>
+  <img src="https://img.shields.io/badge/Platform-Android%20TV-8FAFD2" alt="Android TV" />
+  <img src="https://img.shields.io/badge/Android-API%2021%2B-8FAFD2" alt="Android API 21+" />
+  <img src="https://img.shields.io/badge/Language-Java-8FAFD2" alt="Java" />
+</p>
 
-A lightweight, remote-first Android TV launcher for Android 5.1+ (API 21+).
+<p align="center">A clean, remote-first launcher designed for Android TV.</p>
 
-## What changed
+---
 
-- A large, vertically stretched centre clock with a custom Inter Display face and a locale-aware date.
-- A floating glass-style app dock with artwork tiles, focus lift, and a selected-app title.
-- Original line icons for TV inputs, sources, settings, network, browser, media, cast, and wallpaper controls.
-- Custom English and Arabic typefaces (Inter Display and Noto Kufi Arabic).
-- Four bundled cinematic wallpaper presets: Aurora, Ocean, Violet Dusk, and Desert Dusk.
-- A wallpaper picker for choosing an image from the TV's file picker. The selected image is copied into the launcher's private storage so it remains available after reboot.
-- Dynamic artwork background by default: the selected app's icon/banner is composited over a colour glow, heavily blurred, and used as the full-screen backdrop. A chosen preset or custom wallpaper overrides this behaviour.
-- Framework-only UI and RenderScript blur to preserve Android 5.1 compatibility without adding third-party runtime dependencies.
+## Overview
 
-## Build
+**ApolloLauncher** is a lightweight home screen for Android TV devices. It focuses on a clear layout, fast navigation with a TV remote, and a simple viewing experience.
 
-After applying the overlay, commit and push the changes. The repository's existing GitHub Actions workflow runs on push and uploads the debug APK artifact. You can also build locally with Android Studio or the command below.
+The interface is built with Android framework views and supports Android 5.0 (API 21) and newer devices.
 
-Open the repository in Android Studio or run the existing GitHub Actions workflow (`Build APK`). The debug artifact is uploaded as `TvLauncher-debug-apk`.
+## Features
+
+- **Remote-first navigation** — move through apps and controls using a D-pad, keyboard, or TV remote.
+- **Recently used apps** — the most recently launched apps appear first.
+- **Minimal menus** — text-only options with clear focus states.
+- **Arabic and English** — locale-aware typography and right-to-left scrolling for Arabic.
+- **Personalized backgrounds** — dynamic app-colour gradients, built-in wallpapers, and custom images.
+- **At-a-glance information** — a large clock, date, and weather on compatible Zeasn-based TV boxes.
+- **Branded startup** — a short ApolloLauncher wordmark splash screen.
+
+## Compatibility
+
+| Requirement | Details |
+|---|---|
+| Platform | Android TV / Leanback devices |
+| Minimum Android | Android 5.0 (API 21) |
+| Navigation | D-pad, remote control, keyboard |
+| Languages | English and Arabic |
+
+Weather information depends on the provider included in the TV firmware. Other launcher features do not require that provider.
+
+## Install
+
+1. Download the latest **ApolloLauncher-debug-apk** artifact from [GitHub Actions](https://github.com/SANDRO00O/tvluncher/actions/workflows/build.yml).
+2. Install the APK on the TV. For ADB installation:
+
+   ```bash
+   adb install -r app-debug.apk
+   ```
+
+3. Press the **Home** button and choose **ApolloLauncher** as the default home app.
+
+Keep the manufacturer launcher available until ApolloLauncher has been tested after a full reboot.
+
+## Build from source
+
+**Requirements:** JDK 17, Android SDK 33, and Gradle 7.6.4.
 
 ```bash
 gradle assembleDebug
 ```
 
-APK output: `app/build/outputs/apk/debug/app-debug.apk`.
+The debug APK is generated at:
 
-## Install on the TV
-
-```bash
-adb install -r app-debug.apk
-adb shell am start -n com.karrar.tvlauncher/.MainActivity
+```text
+app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Press Home and choose **TV Launcher**. Keep the stock launcher installed so you can switch back at any time.
+The GitHub Actions workflow builds the debug APK on every push and publishes it as **ApolloLauncher-debug-apk**.
 
-## Wallpaper behaviour
+## Application ID
 
-Open **Wallpaper** in the top-right corner. Select Dynamic to restore the selected-app glow, choose one of the four built-in scenes, or choose a custom photo. Custom photos are resized to a TV-friendly resolution and stored inside the app. Selecting **Remove custom wallpaper** returns to Dynamic mode.
+The Android application ID remains `com.karrar.tvlauncher` so existing installations can be updated in place without losing their app data or launcher preferences.
 
 ## Font licences
 
-The bundled Inter Display and Noto Kufi Arabic fonts are distributed under SIL OFL 1.1. See `NOTICE-FONTS.txt` and `LICENSE-OFL-1.1.txt`.
+The bundled Inter Display and Noto Kufi Arabic fonts are distributed under the SIL Open Font License 1.1. See [NOTICE-FONTS.txt](NOTICE-FONTS.txt) and [LICENSE-OFL-1.1.txt](LICENSE-OFL-1.1.txt).
