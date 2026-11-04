@@ -189,6 +189,11 @@ public class WeatherActivity extends Activity {
     }
 
     private TextView button(String label, final Runnable action) {
+        return button(label, action, true);
+    }
+
+    private TextView button(String label, final Runnable action,
+                            final boolean scaleOnFocus) {
         TextView view = text(label, 14, PRIMARY, true);
         view.setGravity(Gravity.CENTER);
         view.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
@@ -203,8 +208,9 @@ public class WeatherActivity extends Activity {
                 target.setBackground(shape(
                         focused ? 0xFF263B5C : CARD_ALT,
                         focused ? 0xFFE0E9F7 : BORDER, 13));
-                target.animate().scaleX(focused ? 1.035f : 1.0f)
-                        .scaleY(focused ? 1.035f : 1.0f)
+                float targetScale = scaleOnFocus && focused ? 1.035f : 1.0f;
+                target.animate().scaleX(targetScale)
+                        .scaleY(targetScale)
                         .setDuration(120L).start();
             }
         });
@@ -494,6 +500,8 @@ public class WeatherActivity extends Activity {
 
     private void buildHourlyCard(LinearLayout parent) {
         LinearLayout panel = card(CARD, 14);
+        panel.setClipChildren(true);
+        panel.setClipToPadding(true);
         addSectionTitle(panel, t("Next hours", "الساعات القادمة"));
 
         HorizontalScrollView scroller = new HorizontalScrollView(this);
@@ -503,6 +511,7 @@ public class WeatherActivity extends Activity {
         scroller.setFillViewport(false);
         scroller.setClipChildren(true);
         scroller.setClipToPadding(true);
+        scroller.setPadding(0, dp(2), 0, dp(2));
 
         hoursRow = linear(false);
         hoursRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -973,7 +982,7 @@ public class WeatherActivity extends Activity {
                                     dialog.dismiss();
                                     load();
                                 }
-                            });
+                            }, false);
                             item.setGravity(arabic
                                     ? Gravity.RIGHT | Gravity.CENTER_VERTICAL
                                     : Gravity.LEFT | Gravity.CENTER_VERTICAL);
