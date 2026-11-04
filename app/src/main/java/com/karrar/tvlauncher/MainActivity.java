@@ -45,6 +45,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
@@ -91,6 +92,8 @@ public class MainActivity extends Activity {
     private static final long WEATHER_REFRESH_INTERVAL_MS = 30L * 60L * 1000L;
     private static final long NETWORK_TIME_REFRESH_INTERVAL_MS = 6L * 60L * 60L * 1000L;
     private static final long DAY_MS = 24L * 60L * 60L * 1000L;
+    private static final long STARTUP_MAX_WAIT_MS = 35000L;
+    private static final long STARTUP_MIN_DISPLAY_MS = 700L;
 
     private static final String[] HIDDEN = {
             "com.cultraview.agingmodel", "com.ctvdevicemanger", "com.example.upgrad"
@@ -143,6 +146,13 @@ public class MainActivity extends Activity {
     private float density;
     private SharedPreferences preferences;
     private FrameLayout root;
+    private FrameLayout splashView;
+    private long startupStartedAtElapsedMs;
+    private boolean startupAppsReady;
+    private boolean startupClockReady;
+    private boolean startupWeatherReady;
+    private boolean startupTimedOut;
+    private boolean startupRevealScheduled;
     private ImageView wallpaperView;
     private LinearLayout appsRow;
     private LinearLayout quickRow;
@@ -213,6 +223,35 @@ public class MainActivity extends Activity {
             if (!activityDestroyed) syncNetworkTime();
         }
     };
+    private final Runnable startupTimeoutRunnable = new Runnable() {
+        @Override public void run() {
+            if (activityDestroyed || splashView == null) return;
+            startupTimedOut = true;
+
+            if (!startupWeatherReady && !weatherLoaded) {
+                weatherTemperature.setText("--°");
+                weatherCondition.setText(text("Weather unavailable", "الطقس غير متاح"));
+                startupWeatherReady = true;
+            }
+
+            if (!startupAppsReady && appsRow != null && appsRow.getChildCount() == 0) {
+                selectedTitle.setText(text("No apps found yet", "لم يتم العثور على تطبيقات بعد"));
+                startupAppsReady = true;
+            }
+
+            if (!startupClockReady && !networkTimeAvailable) {
+                if (isSystemClockObviouslyInvalid(System.currentTimeMillis())) {
+                    clockView.setText("--:--");
+                    dateView.setText(text("Time unavailable", "الوقت غير متاح"));
+                } else {
+                    updateClockText();
+                }
+                startupClockReady = true;
+            }
+
+            maybeFinishStartup();
+        }
+    };
     private final ThreadPoolExecutor blurExecutor = new ThreadPoolExecutor(
             1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
     private final LruCache<String, Bitmap> blurredBackdrops = new LruCache<String, Bitmap>(5 * 1024) {
@@ -238,6 +277,11 @@ public class MainActivity extends Activity {
             boolean timeZoneChanged = Intent.ACTION_TIMEZONE_CHANGED.equals(action);
             if (timeWasSet || timeZoneChanged || Intent.ACTION_TIME_TICK.equals(action)) {
                 updateClockText();
+            }
+            if (timeWasSet && !startupClockReady
+                    && !isSystemClockObviouslyInvalid(System.currentTimeMillis())) {
+                startupClockReady = true;
+                maybeFinishStartup();
             }
 
             // An early HTTPS weather request can fail while Android still has
@@ -279,17 +323,24 @@ public class MainActivity extends Activity {
                 WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().setBackgroundDrawable(new ColorDrawable(0xFF070B18));
 
+        startupStartedAtElapsedMs = SystemClock.elapsedRealtime();
         loadTypefaces();
         buildInterface();
         showSplashScreen();
         registerPackageReceiver();
         registerSystemStateReceiver();
         restoreWallpaper();
+
+        // Start all first-screen data work behind the splash. The launcher is
+        // revealed only after the clock, weather and application row are ready.
         refreshWeather();
         updateClockText();
         syncNetworkTime();
+        loadApps();
+
         mainHandler.postDelayed(weatherRefreshRunnable, WEATHER_REFRESH_INTERVAL_MS);
         mainHandler.post(clockUpdateRunnable);
+        mainHandler.postDelayed(startupTimeoutRunnable, STARTUP_MAX_WAIT_MS);
     }
 
     private void loadTypefaces() {
@@ -529,35 +580,81 @@ public class MainActivity extends Activity {
     }
 
     private void showSplashScreen() {
-        final FrameLayout splash = new FrameLayout(this);
-        splash.setBackgroundColor(0xFF070B18);
-        splash.setFocusable(true);
-        splash.setFocusableInTouchMode(true);
-        splash.setClickable(true);
+        splashView = new FrameLayout(this);
+        splashView.setBackgroundColor(0xFF070B18);
+        splashView.setFocusable(true);
+        splashView.setFocusableInTouchMode(true);
+        splashView.setClickable(true);
 
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.apollolauncher_logo);
         logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
         int logoWidth = Math.min((int)(getResources().getDisplayMetrics().widthPixels * 0.68f), dp(680));
         FrameLayout.LayoutParams logoParams = new FrameLayout.LayoutParams(logoWidth, dp(150), Gravity.CENTER);
-        splash.addView(logo, logoParams);
+        splashView.addView(logo, logoParams);
 
-        root.addView(splash, new FrameLayout.LayoutParams(
+        TextView status = new TextView(this);
+        status.setText(text("Preparing your TV…", "جارٍ تجهيز التلفاز…"));
+        status.setTextColor(0xBFFFFFFF);
+        status.setTypeface(typefaceForLocale());
+        status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        status.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams statusParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, dp(30), Gravity.CENTER);
+        statusParams.topMargin = dp(116);
+        splashView.addView(status, statusParams);
+
+        root.addView(splashView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        splash.requestFocus();
+        splashView.requestFocus();
+    }
 
-        mainHandler.postDelayed(new Runnable() {
+    private void maybeFinishStartup() {
+        if (activityDestroyed || splashView == null || startupRevealScheduled) return;
+        if (!startupAppsReady || !startupClockReady || !startupWeatherReady) return;
+
+        startupRevealScheduled = true;
+        root.post(new Runnable() {
             @Override public void run() {
-                if (activityDestroyed || root == null || splash.getParent() != root) return;
-                splash.animate().alpha(0f).setDuration(280).withEndAction(new Runnable() {
-                    @Override public void run() {
-                        if (root != null) root.removeView(splash);
-                        loadApps();
-                        focusFirstAppTile();
-                    }
-                }).start();
+                if (activityDestroyed || splashView == null) {
+                    startupRevealScheduled = false;
+                    return;
+                }
+
+                if (appsScroller != null && appsScroller.getWidth() == 0) {
+                    startupRevealScheduled = false;
+                    mainHandler.postDelayed(new Runnable() {
+                        @Override public void run() { maybeFinishStartup(); }
+                    }, 60L);
+                    return;
+                }
+
+                long elapsed = SystemClock.elapsedRealtime() - startupStartedAtElapsedMs;
+                long remaining = STARTUP_MIN_DISPLAY_MS - elapsed;
+                if (remaining > 0L) {
+                    startupRevealScheduled = false;
+                    mainHandler.postDelayed(new Runnable() {
+                        @Override public void run() { maybeFinishStartup(); }
+                    }, remaining);
+                    return;
+                }
+
+                revealLauncher();
             }
-        }, 950L);
+        });
+    }
+
+    private void revealLauncher() {
+        if (splashView == null || root == null) return;
+        final FrameLayout splash = splashView;
+        splashView = null;
+        splash.animate().alpha(0f).setDuration(260).withEndAction(new Runnable() {
+            @Override public void run() {
+                if (root != null && splash.getParent() == root) root.removeView(splash);
+                refreshAppsScrollerAfterLayout();
+                focusFirstAppTile();
+            }
+        }).start();
     }
 
     private int clockSizeSp() {
@@ -688,9 +785,11 @@ public class MainActivity extends Activity {
                     networkTimeAtSyncMs = serverTimeMillis;
                     networkTimeAtSyncElapsedMs = SystemClock.elapsedRealtime();
                     networkTimeAvailable = true;
+                    startupClockReady = true;
                     networkTimeRetryAttempt = 0;
                     mainHandler.removeCallbacks(networkTimeRetryRunnable);
                     updateClockText();
+                    maybeFinishStartup();
 
                     mainHandler.removeCallbacks(networkTimeRefreshRunnable);
                     mainHandler.postDelayed(networkTimeRefreshRunnable,
@@ -763,8 +862,10 @@ public class MainActivity extends Activity {
                         weatherGlyph.setContentDescription(info.condition);
                     }
                     weatherLoaded = true;
+                    startupWeatherReady = true;
                     weatherRetryAttempt = 0;
                     mainHandler.removeCallbacks(weatherRetryRunnable);
+                    maybeFinishStartup();
                 } else if (!weatherLoaded) {
                     weatherTemperature.setText("--°");
                     weatherCondition.setText(text("Weather unavailable", "الطقس غير متاح"));
@@ -1219,6 +1320,11 @@ public class MainActivity extends Activity {
         root.invalidate();
         scrollScrollerToStart(appsScroller);
         scrollScrollerToStart(quickScroller);
+
+        if (!apps.isEmpty()) {
+            startupAppsReady = true;
+            maybeFinishStartup();
+        }
 
         if (apps.isEmpty()) {
             scheduleAppsRetry();
@@ -1917,11 +2023,57 @@ public class MainActivity extends Activity {
 
     private void scrollScrollerToStart(final HorizontalScrollView scroller) {
         if (scroller == null) return;
-        scroller.post(new Runnable() {
-            @Override public void run() {
-                scroller.scrollTo(isArabicLocale() ? Integer.MAX_VALUE : 0, 0);
+
+        final ViewTreeObserver observer = scroller.getViewTreeObserver();
+        if (!observer.isAlive()) return;
+
+        final ViewTreeObserver.OnGlobalLayoutListener listener =
+                new ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override public void onGlobalLayout() {
+                if (scroller.getViewTreeObserver().isAlive()) {
+                    scroller.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                }
+
+                View content = scroller.getChildAt(0);
+                if (content == null || scroller.getWidth() == 0) return;
+
+                content.requestLayout();
+                content.invalidate();
+
+                int availableWidth = scroller.getWidth()
+                        - scroller.getPaddingLeft() - scroller.getPaddingRight();
+                int range = Math.max(0, content.getWidth() - availableWidth);
+                int start = isArabicLocale() ? range : 0;
+
+                // Use the measured scroll range, not Integer.MAX_VALUE. On
+                // older Android TV builds the latter can leave the first
+                // frame at a stale position until the user scrolls manually.
+                scroller.scrollTo(start, 0);
+                scroller.invalidate();
+                if (content instanceof ViewGroup) {
+                    ViewGroup group = (ViewGroup) content;
+                    for (int i = 0; i < group.getChildCount(); i++) {
+                        group.getChildAt(i).invalidate();
+                    }
+                }
+                scroller.postInvalidate();
+                if (root != null) root.invalidate();
             }
-        });
+        };
+        observer.addOnGlobalLayoutListener(listener);
+        scroller.requestLayout();
+        scroller.invalidate();
+        if (root != null) root.requestLayout();
+    }
+
+    private void refreshAppsScrollerAfterLayout() {
+        if (appsRow == null || appsScroller == null) return;
+        appsRow.requestLayout();
+        appsRow.invalidate();
+        appsScroller.requestLayout();
+        appsScroller.invalidate();
+        scrollScrollerToStart(appsScroller);
+        scrollScrollerToStart(quickScroller);
     }
 
     @Override
