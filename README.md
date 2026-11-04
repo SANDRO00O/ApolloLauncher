@@ -10,6 +10,18 @@
   <img src="https://img.shields.io/badge/Language-Java-8FAFD2" alt="Java" />
 </p>
 
+<br clear="all">
+
+### Home
+<p align="center">
+  <img src="screenshots/1.png" width="190" alt="Home screen with developer bookmarks">
+</p>
+
+### Weather app
+<p align="center">
+  <img src="screenshots/2.png" width="190" alt="Eruda console auto-injected into a page">
+</p>
+
 <p align="center">A clean, remote-first launcher designed for Android TV.</p>
 
 ---
