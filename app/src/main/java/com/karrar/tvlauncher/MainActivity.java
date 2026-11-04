@@ -621,7 +621,12 @@ public class MainActivity extends Activity {
                     return;
                 }
 
-                if (appsScroller != null && appsScroller.getWidth() == 0) {
+                boolean scrollerNotMeasured = appsScroller != null
+                        && appsScroller.getWidth() == 0;
+                boolean firstTileNotMeasured = appsRow != null
+                        && appsRow.getChildCount() > 0
+                        && appsRow.getChildAt(0).getWidth() == 0;
+                if (scrollerNotMeasured || firstTileNotMeasured) {
                     startupRevealScheduled = false;
                     mainHandler.postDelayed(new Runnable() {
                         @Override public void run() { maybeFinishStartup(); }
