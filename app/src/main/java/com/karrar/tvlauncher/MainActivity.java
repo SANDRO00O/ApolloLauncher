@@ -587,7 +587,7 @@ public class MainActivity extends Activity {
         new AsyncTask<Void, Void, WeatherInfo>() {
             @Override protected WeatherInfo doInBackground(Void... ignored) {
                 try {
-                    JSONObject forecast = WeatherService.fetchForecast(place.latitude, place.longitude);
+                    JSONObject forecast = WeatherService.fetchForecast(MainActivity.this, place.latitude, place.longitude);
                     JSONObject current = forecast.getJSONObject("current");
                     WeatherInfo info = new WeatherInfo();
                     double value = current.optDouble("temperature_2m", Double.NaN);
@@ -597,7 +597,7 @@ public class MainActivity extends Activity {
                     info.icon = WeatherService.icon(code, current.optInt("is_day", 1) == 1);
                     info.city = place.shortName();
                     return info;
-                } catch (Exception ignoredError) { return null; }
+                } catch (Exception ignoredError) { android.util.Log.e("ApolloWeather", "Launcher weather request failed", ignoredError); return null; }
             }
 
             @Override protected void onPostExecute(WeatherInfo info) {
