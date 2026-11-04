@@ -1,5 +1,5 @@
 name: ApolloLauncher Build
-# Weather TLS compatibility for legacy Android API levels.
+# Weather TLS compatibility and resilient startup initialization for legacy Android TV devices.
 on: [push, workflow_dispatch]
 jobs:
   build:
