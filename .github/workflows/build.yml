@@ -1,4 +1,5 @@
 name: ApolloLauncher Build
+# Weather TLS compatibility for legacy Android API levels.
 on: [push, workflow_dispatch]
 jobs:
   build:
