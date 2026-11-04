@@ -1337,7 +1337,7 @@ public class MainActivity extends Activity {
         }
         appsScroller.setVisibility(View.VISIBLE);
         quickScroller.setVisibility(View.VISIBLE);
-        focusFirstAppTile();
+        if (splashView == null) focusFirstAppTile();
     }
 
     private void focusFirstAppTile() {
