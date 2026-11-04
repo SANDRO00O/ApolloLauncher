@@ -319,6 +319,11 @@ public class WeatherActivity extends Activity {
         LinearLayout metricRowTwo = linear(false);
         metricsGrid.addView(metricRowOne, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f));
+
+        View metricRowGap = new View(this);
+        metricsGrid.addView(metricRowGap, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(12)));
+
         metricsGrid.addView(metricRowTwo, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f));
         metricCard.addView(metricsGrid, new LinearLayout.LayoutParams(
@@ -452,37 +457,37 @@ public class WeatherActivity extends Activity {
     private TextView metricCard(LinearLayout row, String label, String value,
                                 String subtitle, boolean isWind) {
         LinearLayout panel = linear(true);
-        panel.setPadding(dp(13), dp(8), dp(13), dp(7));
+        panel.setPadding(dp(12), dp(6), dp(12), dp(6));
         panel.setBackground(shape(0xFF18263C, BORDER, 14));
 
         TextView heading = text(label, 13, MUTED, true);
         heading.setSingleLine(true);
         heading.setEllipsize(TextUtils.TruncateAt.END);
         panel.addView(heading, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(22)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(20)));
 
         TextView valueView = numericText(value, 23, PRIMARY, true);
         if (isWind) valueView.setTextSize(20);
         panel.addView(valueView, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(34)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(30)));
 
         TextView detail = text(subtitle, 11, SUBTLE, false);
         detail.setSingleLine(true);
         detail.setEllipsize(TextUtils.TruncateAt.END);
         panel.addView(detail, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(19)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(16)));
         if (isWind) windDirectionDetail = detail;
+
+        if (row.getChildCount() > 0) {
+            View spacer = new View(this);
+            row.addView(spacer, new LinearLayout.LayoutParams(dp(12),
+                    ViewGroup.LayoutParams.MATCH_PARENT));
+        }
 
         LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(0,
                         ViewGroup.LayoutParams.MATCH_PARENT, 1.0f);
-        if (row.getChildCount() > 0) params.leftMargin = dp(9);
         row.addView(panel, params);
-
-        if (row.getChildCount() == 1) {
-            View spacer = new View(this);
-            row.addView(spacer, new LinearLayout.LayoutParams(dp(1), 1));
-        }
 
         return valueView;
     }
@@ -496,9 +501,13 @@ public class WeatherActivity extends Activity {
         scroller.setVerticalScrollBarEnabled(false);
         scroller.setOverScrollMode(View.OVER_SCROLL_NEVER);
         scroller.setFillViewport(false);
+        scroller.setClipChildren(true);
+        scroller.setClipToPadding(true);
 
         hoursRow = linear(false);
         hoursRow.setGravity(Gravity.CENTER_VERTICAL);
+        hoursRow.setClipChildren(true);
+        hoursRow.setClipToPadding(true);
         scroller.addView(hoursRow, new HorizontalScrollView.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
@@ -727,7 +736,9 @@ public class WeatherActivity extends Activity {
         for (int i = start; i < end; i++) {
             LinearLayout item = linear(true);
             item.setGravity(Gravity.CENTER);
-            item.setPadding(dp(5), dp(7), dp(5), dp(7));
+            item.setClipChildren(true);
+            item.setClipToPadding(true);
+            item.setPadding(dp(6), dp(6), dp(6), dp(6));
             item.setBackground(shape(0xFF18263C, BORDER, 13));
 
             String time = i == start
@@ -746,15 +757,19 @@ public class WeatherActivity extends Activity {
             icon.setTextSize(27);
             icon.setGravity(Gravity.CENTER);
             icon.setTextDirection(View.TEXT_DIRECTION_LTR);
-            item.addView(icon, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(43)));
+            LinearLayout.LayoutParams iconParams =
+                    new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
+            iconParams.topMargin = dp(3);
+            iconParams.bottomMargin = dp(3);
+            item.addView(icon, iconParams);
 
             TextView temp = numericText(
                     degrees(temperatures.optDouble(i, Double.NaN)),
                     17, PRIMARY, true);
             temp.setGravity(Gravity.CENTER);
             item.addView(temp, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(27)));
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(25)));
 
             String rainValue = rain == null
                     ? "--" : rain.optInt(i, -1) < 0
@@ -762,11 +777,10 @@ public class WeatherActivity extends Activity {
             TextView rainView = numericText(rainValue, 11, BLUE, false);
             rainView.setGravity(Gravity.CENTER);
             item.addView(rainView, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(20)));
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
 
             LinearLayout.LayoutParams params =
-                    new LinearLayout.LayoutParams(dp(72),
-                            ViewGroup.LayoutParams.MATCH_PARENT);
+                    new LinearLayout.LayoutParams(dp(76), dp(136));
             if (hoursRow.getChildCount() > 0) {
                 params.leftMargin = dp(8);
             }
