@@ -67,6 +67,7 @@ public class WeatherActivity extends Activity {
     private TextView sunset;
     private TextView humidityValue;
     private TextView windValue;
+    private TextView windDirectionDetail;
     private TextView rainValue;
     private TextView uvValue;
 
@@ -466,6 +467,7 @@ public class WeatherActivity extends Activity {
         detail.setEllipsize(TextUtils.TruncateAt.END);
         panel.addView(detail, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(19)));
+        if (isWind) windDirectionDetail = detail;
 
         LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(0,
@@ -628,6 +630,10 @@ public class WeatherActivity extends Activity {
                 current.optDouble("wind_speed_10m", Double.NaN))
                 ? "--"
                 : windSpeed + " km/h");
+        if (windDirectionDetail != null) {
+            windDirectionDetail.setText(WeatherService.windDirection(
+                    windDirection, arabic));
+        }
 
         JSONArray rain = daily.optJSONArray("precipitation_probability_max");
         setMetric(rainValue, rain == null
@@ -642,10 +648,9 @@ public class WeatherActivity extends Activity {
                 ? "--" : String.format(Locale.US, "%.1f", uvIndex));
 
         String timestamp = current.optString("time", "");
+        renderSun(daily);
         updated.setText(t("Updated ", "آخر تحديث ")
                 + hour(timestamp));
-
-        renderSun(daily);
         renderHours(forecast.optJSONObject("hourly"), timestamp);
         renderDays(daily);
     }
