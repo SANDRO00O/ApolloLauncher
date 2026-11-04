@@ -7,11 +7,21 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.security.KeyStore;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.List;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509TrustManager;
 
 /** Open-Meteo forecast and geocoding client shared by the launcher and weather page. */
 public final class WeatherService {
@@ -49,7 +59,7 @@ public final class WeatherService {
                 prefs.getFloat(PREF_LONGITUDE, (float) DEFAULT_LONGITUDE));
     }
 
-    public static JSONObject fetchForecast(double latitude, double longitude) throws Exception {
+    public static JSONObject fetchForecast(Context context, double latitude, double longitude) throws Exception {
         StringBuilder url = new StringBuilder("https://api.open-meteo.com/v1/forecast?");
         url.append("latitude=").append(latitude).append("&longitude=").append(longitude);
         url.append("&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m");
@@ -57,14 +67,14 @@ public final class WeatherService {
         url.append("&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max,precipitation_sum");
         url.append("&timezone=auto&forecast_days=7");
         url.append("&temperature_unit=celsius&wind_speed_unit=kmh&precipitation_unit=mm");
-        return requestJson(url.toString());
+        return requestJson(context, url.toString());
     }
 
-    public static List<Place> searchLocations(String query, boolean arabic) throws Exception {
+    public static List<Place> searchLocations(Context context, String query, boolean arabic) throws Exception {
         String url = "https://geocoding-api.open-meteo.com/v1/search?name="
                 + URLEncoder.encode(query, "UTF-8") + "&count=10&language="
                 + (arabic ? "ar" : "en") + "&format=json";
-        JSONArray results = requestJson(url).optJSONArray("results");
+        JSONArray results = requestJson(context, url).optJSONArray("results");
         List<Place> places = new ArrayList<Place>();
         if (results == null) return places;
         for (int i = 0; i < results.length(); i++) {
@@ -83,12 +93,95 @@ public final class WeatherService {
         return places;
     }
 
-    private static JSONObject requestJson(String address) throws Exception {
-        HttpURLConnection connection = null;
+    /*
+     * Android 5.1 does not include ISRG Root X1 in its system trust store.
+     * Open-Meteo uses Let's Encrypt, so add the official ISRG Root X1 as an
+     * additional trust anchor while retaining all system trust anchors.
+     * Normal certificate-chain and hostname verification remain enabled.
+     */
+    private static volatile SSLSocketFactory weatherSocketFactory;
+
+    private static SSLSocketFactory getWeatherSocketFactory(Context context) throws Exception {
+        SSLSocketFactory cached = weatherSocketFactory;
+        if (cached != null) return cached;
+        synchronized (WeatherService.class) {
+            if (weatherSocketFactory != null) return weatherSocketFactory;
+
+            CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
+            Certificate rootCertificate;
+            InputStream rootInput = context.getResources().openRawResource(R.raw.isrg_root_x1);
+            try {
+                rootCertificate = certificateFactory.generateCertificate(rootInput);
+            } finally {
+                rootInput.close();
+            }
+
+            KeyStore additionalStore = KeyStore.getInstance(KeyStore.getDefaultType());
+            additionalStore.load(null, null);
+            additionalStore.setCertificateEntry("isrg-root-x1", rootCertificate);
+
+            String algorithm = TrustManagerFactory.getDefaultAlgorithm();
+            TrustManagerFactory additionalFactory = TrustManagerFactory.getInstance(algorithm);
+            additionalFactory.init(additionalStore);
+            final X509TrustManager additionalTrust = findX509TrustManager(additionalFactory.getTrustManagers());
+
+            TrustManagerFactory systemFactory = TrustManagerFactory.getInstance(algorithm);
+            systemFactory.init((KeyStore) null);
+            final X509TrustManager systemTrust = findX509TrustManager(systemFactory.getTrustManagers());
+
+            X509TrustManager combinedTrust = new X509TrustManager() {
+                @Override public void checkClientTrusted(X509Certificate[] chain, String authType)
+                        throws CertificateException {
+                    systemTrust.checkClientTrusted(chain, authType);
+                }
+
+                @Override public void checkServerTrusted(X509Certificate[] chain, String authType)
+                        throws CertificateException {
+                    try {
+                        systemTrust.checkServerTrusted(chain, authType);
+                    } catch (CertificateException systemFailure) {
+                        try {
+                            additionalTrust.checkServerTrusted(chain, authType);
+                        } catch (CertificateException additionalFailure) {
+                            additionalFailure.addSuppressed(systemFailure);
+                            throw additionalFailure;
+                        }
+                    }
+                }
+
+                @Override public X509Certificate[] getAcceptedIssuers() {
+                    X509Certificate[] systemIssuers = systemTrust.getAcceptedIssuers();
+                    X509Certificate[] additionalIssuers = additionalTrust.getAcceptedIssuers();
+                    if (systemIssuers == null) systemIssuers = new X509Certificate[0];
+                    if (additionalIssuers == null) additionalIssuers = new X509Certificate[0];
+                    X509Certificate[] all = new X509Certificate[systemIssuers.length + additionalIssuers.length];
+                    System.arraycopy(systemIssuers, 0, all, 0, systemIssuers.length);
+                    System.arraycopy(additionalIssuers, 0, all, systemIssuers.length, additionalIssuers.length);
+                    return all;
+                }
+            };
+
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, new TrustManager[]{combinedTrust}, null);
+            weatherSocketFactory = sslContext.getSocketFactory();
+            return weatherSocketFactory;
+        }
+    }
+
+    private static X509TrustManager findX509TrustManager(TrustManager[] managers) throws Exception {
+        for (TrustManager manager : managers) {
+            if (manager instanceof X509TrustManager) return (X509TrustManager) manager;
+        }
+        throw new IllegalStateException("No X509TrustManager available");
+    }
+
+    private static JSONObject requestJson(Context context, String address) throws Exception {
+        HttpsURLConnection connection = null;
         InputStream stream = null;
         BufferedReader reader = null;
         try {
-            connection = (HttpURLConnection) new URL(address).openConnection();
+            connection = (HttpsURLConnection) new URL(address).openConnection();
+            connection.setSSLSocketFactory(getWeatherSocketFactory(context.getApplicationContext()));
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(12000);
             connection.setReadTimeout(15000);
@@ -110,6 +203,12 @@ public final class WeatherService {
                         "Weather service HTTP " + status));
             }
             return json;
+        } catch (Exception error) {
+            String host = "unknown host";
+            try { host = new URL(address).getHost(); } catch (Exception ignored) { }
+            android.util.Log.e("ApolloWeather", "Request to " + host + " failed: "
+                    + error.getClass().getSimpleName() + ": " + error.getMessage(), error);
+            throw error;
         } finally {
             try { if (reader != null) reader.close(); } catch (Exception ignored) { }
             try { if (stream != null) stream.close(); } catch (Exception ignored) { }
