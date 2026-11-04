@@ -154,6 +154,7 @@ public class WeatherActivity extends Activity {
     private TextView numericText(String value, float sizeSp, int color, boolean bold) {
         TextView view = text(value, sizeSp, color, bold);
         view.setTextDirection(View.TEXT_DIRECTION_LTR);
+        view.setTypeface(bold ? latinTypeface : Typeface.DEFAULT);
         view.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
         return view;
     }
@@ -816,12 +817,12 @@ public class WeatherActivity extends Activity {
                     degrees(lows.optDouble(i, Double.NaN)) + " / "
                             + degrees(highs.optDouble(i, Double.NaN)),
                     13, PRIMARY, true);
-            temperatures.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+            temperatures.setGravity((arabic ? Gravity.LEFT : Gravity.RIGHT) | Gravity.CENTER_VERTICAL);
             row.addView(temperatures, new LinearLayout.LayoutParams(
                     0, dp(27), 1.0f));
 
             daysColumn.addView(row, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(28)));
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(27)));
 
             if (i < count - 1) {
                 View divider = new View(this);
