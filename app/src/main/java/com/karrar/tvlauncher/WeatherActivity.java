@@ -327,12 +327,12 @@ public class WeatherActivity extends Activity {
         buildMetricPlaceholders(metricRowOne, metricRowTwo);
 
         LinearLayout.LayoutParams metricParams =
-                new LinearLayout.LayoutParams(0, dp(224), 1.18f);
+                new LinearLayout.LayoutParams(0, dp(244), 1.18f);
         metricParams.leftMargin = dp(12);
         topRow.addView(metricCard, metricParams);
 
         body.addView(topRow, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(224)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(244)));
 
         View rowGap = new View(this);
         body.addView(rowGap, new LinearLayout.LayoutParams(
@@ -383,18 +383,7 @@ public class WeatherActivity extends Activity {
                 15, 0xFFE3E9F6, true);
         condition.setMaxLines(2);
         information.addView(condition, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(43)));
-
-        feelsLike = text(t("Feels like --°", "المحسوسة --°"),
-                13, MUTED, false);
-        information.addView(feelsLike, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(25)));
-
-        temperatureRange = text(t("High --°   Low --°", "العظمى --°   الصغرى --°"),
-                13, MUTED, false);
-        temperatureRange.setSingleLine(true);
-        information.addView(temperatureRange, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(25)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(39)));
 
         upper.addView(information, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f));
@@ -413,22 +402,35 @@ public class WeatherActivity extends Activity {
         currentCard.addView(upper, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f));
 
+        LinearLayout detailRow = linear(false);
+        feelsLike = text(t("Feels like --°", "المحسوسة --°"),
+                12, MUTED, false);
+        temperatureRange = text(t("High --°   Low --°",
+                "العظمى --°   الصغرى --°"), 12, MUTED, false);
+        temperatureRange.setSingleLine(true);
+        detailRow.addView(feelsLike, new LinearLayout.LayoutParams(
+                0, dp(24), 0.85f));
+        detailRow.addView(temperatureRange, new LinearLayout.LayoutParams(
+                0, dp(24), 1.15f));
+        currentCard.addView(detailRow, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(24)));
+
         View separator = new View(this);
         separator.setBackgroundColor(0x33465B78);
         LinearLayout.LayoutParams separatorParams =
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
-        separatorParams.topMargin = dp(8);
-        separatorParams.bottomMargin = dp(7);
+        separatorParams.topMargin = dp(4);
+        separatorParams.bottomMargin = dp(4);
         currentCard.addView(separator, separatorParams);
 
         sun = linear(false);
         sun.setGravity(Gravity.CENTER_VERTICAL);
         currentCard.addView(sun, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(38)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(32)));
 
         LinearLayout.LayoutParams currentParams =
-                new LinearLayout.LayoutParams(0, dp(224), 1.0f);
+                new LinearLayout.LayoutParams(0, dp(244), 1.0f);
         parent.addView(currentCard, currentParams);
     }
 
