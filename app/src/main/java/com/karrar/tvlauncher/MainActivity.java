@@ -12,7 +12,6 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -87,7 +86,6 @@ public class MainActivity extends Activity {
     private static final int REQUEST_WALLPAPER = 4102;
     private static final int BACKDROP_WIDTH = 384;
     private static final int BACKDROP_HEIGHT = 216;
-    private static final Uri WEATHER_URI = Uri.parse("content://cn.zeasn.weather.query");
     private static final long WEATHER_REFRESH_INTERVAL_MS = 30L * 60L * 1000L;
 
     private static final String[] HIDDEN = {
@@ -124,6 +122,8 @@ public class MainActivity extends Activity {
     private static class WeatherInfo {
         String temperature;
         String condition;
+        String icon;
+        String city;
     }
 
     private static class MenuOption {
@@ -152,6 +152,8 @@ public class MainActivity extends Activity {
     private TextView weatherGlyph;
     private boolean weatherRequestRunning;
     private boolean weatherLoaded;
+    private long lastWeatherRequestAt;
+    private String lastWeatherLocationKey = "";
     private boolean activityDestroyed;
     private boolean appLaunchPending;
     private HorizontalScrollView quickScroller;
@@ -254,7 +256,7 @@ public class MainActivity extends Activity {
         topBar.setClipChildren(false);
         topBar.setClipToPadding(false);
 
-        // Live weather supplied by the TV's built-in Zeasn General Services provider.
+        // Live weather comes from Open-Meteo, independent of the TV manufacturer.
         LinearLayout weatherPanel = new LinearLayout(this);
         weatherPanel.setOrientation(LinearLayout.HORIZONTAL);
         weatherPanel.setGravity(Gravity.CENTER_VERTICAL | (isArabicLocale() ? Gravity.RIGHT : Gravity.LEFT));
@@ -476,7 +478,8 @@ public class MainActivity extends Activity {
                 splash.animate().alpha(0f).setDuration(280).withEndAction(new Runnable() {
                     @Override public void run() {
                         if (root != null) root.removeView(splash);
-                        if (appsRow != null && appsRow.getChildCount() > 0) appsRow.getChildAt(0).requestFocus();
+                        loadApps();
+                        focusFirstAppTile();
                     }
                 }).start();
             }
@@ -563,72 +566,49 @@ public class MainActivity extends Activity {
 
     private void openWeatherApp() {
         try {
-            Intent intent = new Intent("cn.zeasn.general.services.OPEN_WEEKLY");
-            intent.setPackage("com.zeasn.services.general");
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(intent);
-        } catch (Exception firstError) {
-            try {
-                Intent fallback = new Intent(Intent.ACTION_MAIN);
-                fallback.setComponent(new ComponentName("com.zeasn.services.general",
-                        "com.zeasn.services.general.ui.WeeklyActivity"));
-                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(fallback);
-            } catch (Exception secondError) {
-                Toast.makeText(this, text("Weather app is unavailable", "تطبيق الطقس غير متاح"),
-                        Toast.LENGTH_SHORT).show();
-            }
+            startActivity(new Intent(MainActivity.this, WeatherActivity.class));
+        } catch (Exception error) {
+            Toast.makeText(this, text("Could not open the weather page", "تعذر فتح صفحة الطقس"),
+                    Toast.LENGTH_SHORT).show();
         }
     }
 
     private void refreshWeather() {
         if (weatherRequestRunning || activityDestroyed) return;
+        final WeatherService.Place place = WeatherService.getSavedLocation(this);
+        final String locationKey = place.latitude + "," + place.longitude;
+        long now = System.currentTimeMillis();
+        if (weatherLoaded && locationKey.equals(lastWeatherLocationKey)
+                && now - lastWeatherRequestAt < 10L * 60L * 1000L) return;
+
         weatherRequestRunning = true;
-
+        lastWeatherRequestAt = now;
+        lastWeatherLocationKey = locationKey;
         new AsyncTask<Void, Void, WeatherInfo>() {
-            @Override
-            protected WeatherInfo doInBackground(Void... ignored) {
-                Cursor cursor = null;
+            @Override protected WeatherInfo doInBackground(Void... ignored) {
                 try {
-                    cursor = getContentResolver().query(WEATHER_URI, null, null, null, null);
-                    if (cursor == null || !cursor.moveToFirst()) return null;
-
-                    int column = cursor.getColumnIndex("forecasts");
-                    if (column < 0 && cursor.getColumnCount() > 0) column = 0;
-                    if (column < 0) return null;
-
-                    String json = cursor.getString(column);
-                    if (json == null || json.length() == 0) return null;
-
-                    JSONObject data = new JSONObject(json);
-                    String temperature = data.optString("currentTemperature", "");
-                    String condition = data.optString("weatherText", "");
-                    if (temperature.length() == 0 || "null".equalsIgnoreCase(temperature)) return null;
-
+                    JSONObject forecast = WeatherService.fetchForecast(place.latitude, place.longitude);
+                    JSONObject current = forecast.getJSONObject("current");
                     WeatherInfo info = new WeatherInfo();
-                    info.temperature = temperature + "\u00B0";
-                    info.condition = condition;
+                    double value = current.optDouble("temperature_2m", Double.NaN);
+                    info.temperature = Double.isNaN(value) ? "--°" : Math.round(value) + "\u00B0";
+                    int code = current.optInt("weather_code", -1);
+                    info.condition = WeatherService.condition(code, isArabicLocale());
+                    info.icon = WeatherService.icon(code, current.optInt("is_day", 1) == 1);
+                    info.city = place.shortName();
                     return info;
-                } catch (Exception ignoredError) {
-                    return null;
-                } finally {
-                    if (cursor != null) {
-                        try { cursor.close(); } catch (Exception ignoredClose) { }
-                    }
-                }
+                } catch (Exception ignoredError) { return null; }
             }
 
-            @Override
-            protected void onPostExecute(WeatherInfo info) {
+            @Override protected void onPostExecute(WeatherInfo info) {
                 weatherRequestRunning = false;
                 if (activityDestroyed || weatherTemperature == null || weatherCondition == null) return;
-
                 if (info != null) {
                     weatherTemperature.setText(formatDigits(info.temperature));
-                    weatherCondition.setText(formatDigits(localizeWeatherCondition(info.condition)));
+                    weatherCondition.setText(formatDigits(info.condition + " · " + info.city));
                     if (weatherGlyph != null) {
-                        weatherGlyph.setText(weatherIconForCondition(info.condition));
-                        weatherGlyph.setContentDescription(localizeWeatherCondition(info.condition));
+                        weatherGlyph.setText(info.icon);
+                        weatherGlyph.setContentDescription(info.condition);
                     }
                     weatherLoaded = true;
                 } else if (!weatherLoaded) {
@@ -637,69 +617,6 @@ public class MainActivity extends Activity {
                 }
             }
         }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    }
-
-    private String localizeWeatherCondition(String condition) {
-        if (condition == null || condition.length() == 0) {
-            return text("Current conditions", "الحالة الحالية");
-        }
-        if (!isArabicLocale()) return condition;
-        if (condition.matches("(?s).*[\\u0600-\\u06FF\\u0750-\\u077F\\u08A0-\\u08FF].*")) {
-            return condition;
-        }
-
-        String value = condition.toLowerCase(Locale.US);
-        if (value.contains("thunder")) return "عواصف رعدية";
-        if (value.contains("shower") || value.contains("rain")) return "زخات مطر";
-        if (value.contains("snow") || value.contains("sleet")) return "ثلوج";
-        if (value.contains("fog") || value.contains("mist") || value.contains("haze")) return "ضباب";
-        if (value.contains("intermittent cloud")) return "غيوم متقطعة";
-        if (value.contains("mostly cloudy")) return "غائم غالباً";
-        if (value.contains("partly cloudy")) return "غائم جزئياً";
-        if (value.contains("mostly sunny")) return "مشمس غالباً";
-        if (value.contains("partly sunny")) return "مشمس جزئياً";
-        if (value.contains("mostly clear")) return "صافٍ غالباً";
-        if (value.contains("cloud")) return "غائم";
-        if (value.contains("sunny") || value.contains("clear")) return "مشمس";
-        if (value.contains("wind")) return "عاصف";
-        return condition;
-    }
-
-    private String weatherIconForCondition(String condition) {
-        String value = condition == null ? "" : condition.toLowerCase(Locale.US);
-        int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-        boolean night = hour < 6 || hour >= 18;
-        int code;
-
-        if (value.contains("thunder") || value.contains("storm")) {
-            code = night ? 0xF02D : 0xF010;
-        } else if (value.contains("hail")) {
-            code = 0xF015;
-        } else if (value.contains("sleet")) {
-            code = night ? 0xF0B4 : 0xF0B2;
-        } else if (value.contains("snow")) {
-            code = night ? 0xF02A : 0xF00A;
-        } else if (value.contains("drizzle")) {
-            code = night ? 0xF02B : 0xF00B;
-        } else if (value.contains("shower")) {
-            code = night ? 0xF029 : 0xF009;
-        } else if (value.contains("rain")) {
-            code = night ? 0xF028 : 0xF008;
-        } else if (value.contains("fog") || value.contains("mist")
-                || value.contains("haze")) {
-            code = value.contains("haze") && !night ? 0xF0B6 : (night ? 0xF04A : 0xF003);
-        } else if (value.contains("wind") || value.contains("breez")) {
-            code = 0xF050;
-        } else if (value.contains("partly") || value.contains("intermittent cloud")) {
-            code = night ? 0xF086 : 0xF002;
-        } else if (value.contains("cloud") || value.contains("overcast")) {
-            code = night ? 0xF031 : 0xF013;
-        } else if (value.contains("sunny") || value.contains("clear")) {
-            code = night ? 0xF02E : 0xF00D;
-        } else {
-            code = 0xF07B;
-        }
-        return String.valueOf((char) code);
     }
 
     private GradientDrawable roundRect(int fill, int stroke, float radiusDp) {
@@ -1082,13 +999,39 @@ public class MainActivity extends Activity {
         scrollScrollerToStart(appsScroller);
         scrollScrollerToStart(quickScroller);
 
-        if (appsRow.getChildCount() > 0) {
-            appsRow.getChildAt(0).requestFocus();
-        } else if (quickRow.getChildCount() > 0) {
-            quickRow.getChildAt(0).requestFocus();
-        } else {
+        if (appsRow.getChildCount() == 0 && quickRow.getChildCount() == 0) {
             selectedTitle.setText(text("No apps found", "لم يتم العثور على تطبيقات"));
         }
+        appsScroller.setVisibility(View.VISIBLE);
+        quickScroller.setVisibility(View.VISIBLE);
+        focusFirstAppTile();
+    }
+
+    private void focusFirstAppTile() {
+        if (root == null || appsRow == null) return;
+        root.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (activityDestroyed || appsRow == null || appsScroller == null) return;
+                appsScroller.setVisibility(View.VISIBLE);
+                if (appsRow.getChildCount() > 0) {
+                    final View first = appsRow.getChildAt(0);
+                    first.setVisibility(View.VISIBLE);
+                    first.setFocusable(true);
+                    first.requestFocus();
+                    if (!first.hasFocus()) {
+                        first.postDelayed(new Runnable() {
+                            @Override public void run() {
+                                if (!activityDestroyed && first.getParent() == appsRow) first.requestFocus();
+                            }
+                        }, 160L);
+                    }
+                } else if (quickRow != null && quickRow.getChildCount() > 0) {
+                    quickRow.getChildAt(0).requestFocus();
+                } else {
+                    root.requestFocus();
+                }
+            }
+        }, 120L);
     }
 
     private View createAppTile(final Item item) {
@@ -1725,6 +1668,17 @@ public class MainActivity extends Activity {
             appLaunchPending = false;
             loadApps();
         }
+        refreshWeather();
+        focusFirstAppTile();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasWindowFocus) {
+        super.onWindowFocusChanged(hasWindowFocus);
+        if (hasWindowFocus && !activityDestroyed && appsRow != null
+                && appsRow.getChildCount() > 0 && appsRow.findFocus() == null) {
+            focusFirstAppTile();
+        }
     }
 
     private void scrollScrollerToStart(final HorizontalScrollView scroller) {
@@ -1739,10 +1693,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        if (appsRow != null && appsRow.getChildCount() > 0) {
-            scrollScrollerToStart(appsScroller);
-            appsRow.getChildAt(0).requestFocus();
-        }
+        focusFirstAppTile();
     }
 
     @Override
