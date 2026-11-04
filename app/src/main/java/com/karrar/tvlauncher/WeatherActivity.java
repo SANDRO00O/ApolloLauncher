@@ -25,7 +25,7 @@ public class WeatherActivity extends Activity{
   section(body,t("Next 24 hours","الساعات القادمة"));HorizontalScrollView hs=new HorizontalScrollView(this);hs.setHorizontalScrollBarEnabled(false);hours=box(false);hs.addView(hours);body.addView(hs,new LinearLayout.LayoutParams(-1,dp(128)));
   section(body,t("7-day forecast","توقعات 7 أيام"));days=box(true);days.setPadding(dp(12),dp(5),dp(12),dp(5));days.setBackground(shape(0xff111a2b,0xff26334a,16));body.addView(days);
   section(body,t("Sunrise & sunset","الشروق والغروب"));sun=box(false);sun.setGravity(Gravity.CENTER);sun.setBackground(shape(0xff111a2b,0xff26334a,16));body.addView(sun,new LinearLayout.LayoutParams(-1,dp(68)));
-  TextView credit=text("Weather data by Open-Meteo.com · Location data by GeoNames",10,0xff7f8ba0,false);credit.setGravity(Gravity.CENTER);credit.setPadding(0,dp(12),0,dp(4));body.addView(credit);
+  TextView credit=text("Weather data & geocoding by Open-Meteo.com",10,0xff7f8ba0,false);credit.setGravity(Gravity.CENTER);credit.setPadding(0,dp(12),0,dp(4));credit.setFocusable(false);credit.setClickable(true);credit.setOnClickListener(v->{try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://open-meteo.com/")));}catch(Exception ignored){}});body.addView(credit);
   status=text("",11,0xffffc978,false);status.setGravity(Gravity.CENTER);body.addView(status);scroll.addView(body);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);root.post(()->loc.requestFocus());
  }
  void section(LinearLayout parent,String s){TextView v=text(s,16,-1,true);v.setPadding(dp(3),dp(16),dp(3),dp(7));parent.addView(v);}
