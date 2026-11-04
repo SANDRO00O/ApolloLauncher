@@ -71,6 +71,7 @@ public class WeatherActivity extends Activity {
     private TextView rainValue;
     private TextView uvValue;
 
+    private LinearLayout sun;
     private LinearLayout metricsGrid;
     private LinearLayout hoursRow;
     private LinearLayout daysColumn;
