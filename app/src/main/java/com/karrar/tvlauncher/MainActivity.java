@@ -163,6 +163,9 @@ public class MainActivity extends Activity {
     private Typeface weatherIconsTypeface;
     private Item focusedItem;
     private boolean receiverRegistered;
+    private boolean systemReceiverRegistered;
+    private int appLoadRetryAttempt;
+    private int weatherRetryAttempt;
     private volatile int blurRequest = 0;
     private final Handler mainHandler = new Handler();
     private final Runnable weatherRefreshRunnable = new Runnable() {
@@ -181,6 +184,16 @@ public class MainActivity extends Activity {
             }
         }
     };
+    private final Runnable appLoadRetryRunnable = new Runnable() {
+        @Override public void run() {
+            if (!activityDestroyed && appsRow != null) loadApps();
+        }
+    };
+    private final Runnable weatherRetryRunnable = new Runnable() {
+        @Override public void run() {
+            if (!activityDestroyed && !weatherLoaded) refreshWeather();
+        }
+    };
     private final ThreadPoolExecutor blurExecutor = new ThreadPoolExecutor(
             1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
     private final LruCache<String, Bitmap> blurredBackdrops = new LruCache<String, Bitmap>(5 * 1024) {
@@ -193,7 +206,34 @@ public class MainActivity extends Activity {
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            loadApps();
+            scheduleAppsReload(350L);
+        }
+    };
+
+    private final BroadcastReceiver systemStateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent == null ? null : intent.getAction();
+            if (Intent.ACTION_TIME_CHANGED.equals(action)
+                    || Intent.ACTION_TIMEZONE_CHANGED.equals(action)
+                    || Intent.ACTION_DATE_CHANGED.equals(action)
+                    || Intent.ACTION_TIME_TICK.equals(action)) {
+                updateClockText();
+            }
+
+            if (Intent.ACTION_BOOT_COMPLETED.equals(action)
+                    || Intent.ACTION_USER_PRESENT.equals(action)
+                    || Intent.ACTION_EXTERNAL_APPLICATIONS_AVAILABLE.equals(action)) {
+                scheduleAppsReload(900L);
+            }
+
+            if (Intent.ACTION_BOOT_COMPLETED.equals(action)
+                    || Intent.ACTION_USER_PRESENT.equals(action)
+                    || android.net.ConnectivityManager.CONNECTIVITY_ACTION.equals(action)) {
+                weatherRetryAttempt = 0;
+                mainHandler.removeCallbacks(weatherRetryRunnable);
+                mainHandler.postDelayed(weatherRetryRunnable, 1200L);
+            }
         }
     };
 
@@ -210,7 +250,7 @@ public class MainActivity extends Activity {
         buildInterface();
         showSplashScreen();
         registerPackageReceiver();
-        loadApps();
+        registerSystemStateReceiver();
         restoreWallpaper();
         refreshWeather();
         updateClockText();
@@ -554,6 +594,8 @@ public class MainActivity extends Activity {
 
     private void updateClockText() {
         if (clockView == null || dateView == null) return;
+        // Always read the live system clock and timezone. Android may synchronize
+        // both shortly after boot; TIME_SET/TIMEZONE_CHANGED broadcasts also refresh it.
         Date now = new Date();
         String timePattern = DateFormat.is24HourFormat(this) ? "HH:mm" : "h:mm";
         SimpleDateFormat timeFormat = new SimpleDateFormat(timePattern, Locale.US);
@@ -611,9 +653,12 @@ public class MainActivity extends Activity {
                         weatherGlyph.setContentDescription(info.condition);
                     }
                     weatherLoaded = true;
+                    weatherRetryAttempt = 0;
+                    mainHandler.removeCallbacks(weatherRetryRunnable);
                 } else if (!weatherLoaded) {
                     weatherTemperature.setText("--°");
                     weatherCondition.setText(text("Weather unavailable", "الطقس غير متاح"));
+                    scheduleWeatherRetry();
                 }
             }
         }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
@@ -694,6 +739,43 @@ public class MainActivity extends Activity {
         filter.addDataScheme("package");
         registerReceiver(packageReceiver, filter);
         receiverRegistered = true;
+    }
+
+    private void registerSystemStateReceiver() {
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_BOOT_COMPLETED);
+        filter.addAction(Intent.ACTION_USER_PRESENT);
+        filter.addAction(Intent.ACTION_EXTERNAL_APPLICATIONS_AVAILABLE);
+        filter.addAction(android.net.ConnectivityManager.CONNECTIVITY_ACTION);
+        filter.addAction(Intent.ACTION_TIME_CHANGED);
+        filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+        filter.addAction(Intent.ACTION_DATE_CHANGED);
+        filter.addAction(Intent.ACTION_TIME_TICK);
+        registerReceiver(systemStateReceiver, filter);
+        systemReceiverRegistered = true;
+    }
+
+    private void scheduleAppsReload(long delayMillis) {
+        if (activityDestroyed || appsRow == null) return;
+        mainHandler.removeCallbacks(appLoadRetryRunnable);
+        mainHandler.postDelayed(appLoadRetryRunnable, Math.max(0L, delayMillis));
+    }
+
+    private void scheduleAppsRetry() {
+        if (activityDestroyed || appLoadRetryAttempt >= 8) return;
+        long[] delays = {600L, 1200L, 2500L, 5000L, 10000L, 15000L, 20000L, 30000L};
+        long delay = delays[appLoadRetryAttempt++];
+        mainHandler.removeCallbacks(appLoadRetryRunnable);
+        mainHandler.postDelayed(appLoadRetryRunnable, delay);
+    }
+
+    private void scheduleWeatherRetry() {
+        if (activityDestroyed || weatherLoaded) return;
+        long[] delays = {3000L, 5000L, 10000L, 20000L, 30000L, 60000L};
+        long delay = delays[Math.min(weatherRetryAttempt, delays.length - 1)];
+        if (weatherRetryAttempt < delays.length - 1) weatherRetryAttempt++;
+        mainHandler.removeCallbacks(weatherRetryRunnable);
+        mainHandler.postDelayed(weatherRetryRunnable, delay);
     }
 
     private Set<String> getUserHiddenApps() {
@@ -992,14 +1074,36 @@ public class MainActivity extends Activity {
             } catch (PackageManager.NameNotFoundException ignored) { }
         }
 
-        appsRow.removeAllViews();
+        // Keep the last good app row if PackageManager temporarily reports no
+        // launcher activities while Android TV is still completing boot.
+        if (!apps.isEmpty() || appsRow.getChildCount() == 0) {
+            appsRow.removeAllViews();
+            for (Item item : apps) appsRow.addView(createAppTile(item));
+        }
         quickRow.removeAllViews();
-        for (Item item : apps) appsRow.addView(createAppTile(item));
         for (Item item : quick) quickRow.addView(createQuickTile(item));
+
+        appsRow.requestLayout();
+        appsRow.invalidate();
+        quickRow.requestLayout();
+        quickRow.invalidate();
+        appsScroller.requestLayout();
+        appsScroller.invalidate();
+        quickScroller.requestLayout();
+        quickScroller.invalidate();
+        root.requestLayout();
+        root.invalidate();
         scrollScrollerToStart(appsScroller);
         scrollScrollerToStart(quickScroller);
 
-        if (appsRow.getChildCount() == 0 && quickRow.getChildCount() == 0) {
+        if (apps.isEmpty()) {
+            scheduleAppsRetry();
+        } else {
+            appLoadRetryAttempt = 0;
+            mainHandler.removeCallbacks(appLoadRetryRunnable);
+        }
+        if (appsRow.getChildCount() == 0 && quickRow.getChildCount() == 0
+                && appLoadRetryAttempt >= 8) {
             selectedTitle.setText(text("No apps found", "لم يتم العثور على تطبيقات"));
         }
         appsScroller.setVisibility(View.VISIBLE);
@@ -1669,15 +1773,18 @@ public class MainActivity extends Activity {
             loadApps();
         }
         refreshWeather();
+        if (appsRow != null && appsRow.getChildCount() == 0) {
+            scheduleAppsReload(500L);
+        }
         focusFirstAppTile();
     }
 
     @Override
     public void onWindowFocusChanged(boolean hasWindowFocus) {
         super.onWindowFocusChanged(hasWindowFocus);
-        if (hasWindowFocus && !activityDestroyed && appsRow != null
-                && appsRow.getChildCount() > 0 && appsRow.findFocus() == null) {
-            focusFirstAppTile();
+        if (hasWindowFocus && !activityDestroyed && appsRow != null) {
+            if (appsRow.getChildCount() == 0) scheduleAppsReload(500L);
+            else if (appsRow.findFocus() == null) focusFirstAppTile();
         }
     }
 
@@ -1706,6 +1813,10 @@ public class MainActivity extends Activity {
         if (receiverRegistered) {
             try { unregisterReceiver(packageReceiver); } catch (Exception ignored) { }
             receiverRegistered = false;
+        }
+        if (systemReceiverRegistered) {
+            try { unregisterReceiver(systemStateReceiver); } catch (Exception ignored) { }
+            systemReceiverRegistered = false;
         }
         activityDestroyed = true;
         blurRequest++;
