@@ -30,6 +30,8 @@ import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Build;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.text.TextPaint;
 import android.text.SpannableString;
@@ -87,6 +89,8 @@ public class MainActivity extends Activity {
     private static final int BACKDROP_WIDTH = 384;
     private static final int BACKDROP_HEIGHT = 216;
     private static final long WEATHER_REFRESH_INTERVAL_MS = 30L * 60L * 1000L;
+    private static final long NETWORK_TIME_REFRESH_INTERVAL_MS = 6L * 60L * 60L * 1000L;
+    private static final long DAY_MS = 24L * 60L * 60L * 1000L;
 
     private static final String[] HIDDEN = {
             "com.cultraview.agingmodel", "com.ctvdevicemanger", "com.example.upgrad"
@@ -166,6 +170,11 @@ public class MainActivity extends Activity {
     private boolean systemReceiverRegistered;
     private int appLoadRetryAttempt;
     private int weatherRetryAttempt;
+    private volatile boolean networkTimeAvailable;
+    private volatile long networkTimeAtSyncMs;
+    private volatile long networkTimeAtSyncElapsedMs;
+    private boolean networkTimeRequestRunning;
+    private int networkTimeRetryAttempt;
     private volatile int blurRequest = 0;
     private final Handler mainHandler = new Handler();
     private final Runnable weatherRefreshRunnable = new Runnable() {
@@ -194,6 +203,16 @@ public class MainActivity extends Activity {
             if (!activityDestroyed && !weatherLoaded) refreshWeather();
         }
     };
+    private final Runnable networkTimeRetryRunnable = new Runnable() {
+        @Override public void run() {
+            if (!activityDestroyed && !networkTimeAvailable) syncNetworkTime();
+        }
+    };
+    private final Runnable networkTimeRefreshRunnable = new Runnable() {
+        @Override public void run() {
+            if (!activityDestroyed) syncNetworkTime();
+        }
+    };
     private final ThreadPoolExecutor blurExecutor = new ThreadPoolExecutor(
             1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
     private final LruCache<String, Bitmap> blurredBackdrops = new LruCache<String, Bitmap>(5 * 1024) {
@@ -214,11 +233,20 @@ public class MainActivity extends Activity {
         @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent == null ? null : intent.getAction();
-            if (Intent.ACTION_TIME_CHANGED.equals(action)
-                    || Intent.ACTION_TIMEZONE_CHANGED.equals(action)
-                    || Intent.ACTION_DATE_CHANGED.equals(action)
-                    || Intent.ACTION_TIME_TICK.equals(action)) {
+            boolean timeWasSet = Intent.ACTION_TIME_CHANGED.equals(action)
+                    || Intent.ACTION_DATE_CHANGED.equals(action);
+            boolean timeZoneChanged = Intent.ACTION_TIMEZONE_CHANGED.equals(action);
+            if (timeWasSet || timeZoneChanged || Intent.ACTION_TIME_TICK.equals(action)) {
                 updateClockText();
+            }
+
+            // An early HTTPS weather request can fail while Android still has
+            // the factory/boot clock. Retry as soon as Android broadcasts that
+            // its wall clock has been corrected.
+            if ((timeWasSet || timeZoneChanged) && !weatherLoaded) {
+                weatherRetryAttempt = 0;
+                mainHandler.removeCallbacks(weatherRetryRunnable);
+                mainHandler.postDelayed(weatherRetryRunnable, 900L);
             }
 
             if (Intent.ACTION_BOOT_COMPLETED.equals(action)
@@ -233,6 +261,11 @@ public class MainActivity extends Activity {
                 weatherRetryAttempt = 0;
                 mainHandler.removeCallbacks(weatherRetryRunnable);
                 mainHandler.postDelayed(weatherRetryRunnable, 1200L);
+
+                if (!networkTimeAvailable) {
+                    mainHandler.removeCallbacks(networkTimeRetryRunnable);
+                    mainHandler.postDelayed(networkTimeRetryRunnable, 1200L);
+                }
             }
         }
     };
@@ -254,6 +287,7 @@ public class MainActivity extends Activity {
         restoreWallpaper();
         refreshWeather();
         updateClockText();
+        syncNetworkTime();
         mainHandler.postDelayed(weatherRefreshRunnable, WEATHER_REFRESH_INTERVAL_MS);
         mainHandler.post(clockUpdateRunnable);
     }
@@ -594,9 +628,25 @@ public class MainActivity extends Activity {
 
     private void updateClockText() {
         if (clockView == null || dateView == null) return;
-        // Always read the live system clock and timezone. Android may synchronize
-        // both shortly after boot; TIME_SET/TIMEZONE_CHANGED broadcasts also refresh it.
-        Date now = new Date();
+
+        long nowMillis;
+        if (networkTimeAvailable) {
+            long elapsed = Math.max(0L,
+                    SystemClock.elapsedRealtime() - networkTimeAtSyncElapsedMs);
+            nowMillis = networkTimeAtSyncMs + elapsed;
+        } else {
+            nowMillis = System.currentTimeMillis();
+            if (isSystemClockObviouslyInvalid(nowMillis)) {
+                // Do not flash the firmware's stale date while Android is
+                // waiting for its first automatic time synchronization.
+                clockView.setText("--:--");
+                dateView.setTypeface(typefaceForLocale());
+                dateView.setText(text("Synchronizing time…", "جارٍ مزامنة الوقت…"));
+                return;
+            }
+        }
+
+        Date now = new Date(nowMillis);
         String timePattern = DateFormat.is24HourFormat(this) ? "HH:mm" : "h:mm";
         SimpleDateFormat timeFormat = new SimpleDateFormat(timePattern, Locale.US);
         clockView.setText(timeFormat.format(now));
@@ -604,6 +654,66 @@ public class MainActivity extends Activity {
         SimpleDateFormat dateFormat = new SimpleDateFormat("EEEE  ·  d MMMM", uiLocale());
         dateView.setTypeface(typefaceForLocale());
         dateView.setText(formatDigits(dateFormat.format(now)));
+    }
+
+    private boolean isSystemClockObviouslyInvalid(long timeMillis) {
+        // Most legacy TV boxes restore their firmware-build date after a cold
+        // boot until NTP finishes. A real current clock should be newer than
+        // the firmware image by at least one day.
+        long minimumValidTime = Build.TIME > 0L
+                ? Build.TIME + DAY_MS : 946684800000L;
+        return timeMillis < minimumValidTime;
+    }
+
+    private void syncNetworkTime() {
+        if (activityDestroyed || networkTimeRequestRunning) return;
+        networkTimeRequestRunning = true;
+
+        new AsyncTask<Void, Void, Long>() {
+            @Override protected Long doInBackground(Void... ignored) {
+                try {
+                    return NetworkTimeClient.fetchUtcTimeMillis();
+                } catch (Exception error) {
+                    android.util.Log.w("ApolloClock",
+                            "Network time synchronization failed: " + error.getMessage());
+                    return null;
+                }
+            }
+
+            @Override protected void onPostExecute(Long serverTimeMillis) {
+                networkTimeRequestRunning = false;
+                if (activityDestroyed) return;
+
+                if (serverTimeMillis != null && serverTimeMillis > 0L) {
+                    networkTimeAtSyncMs = serverTimeMillis;
+                    networkTimeAtSyncElapsedMs = SystemClock.elapsedRealtime();
+                    networkTimeAvailable = true;
+                    networkTimeRetryAttempt = 0;
+                    mainHandler.removeCallbacks(networkTimeRetryRunnable);
+                    updateClockText();
+
+                    mainHandler.removeCallbacks(networkTimeRefreshRunnable);
+                    mainHandler.postDelayed(networkTimeRefreshRunnable,
+                            NETWORK_TIME_REFRESH_INTERVAL_MS);
+                } else if (networkTimeAvailable) {
+                    // Keep the last good monotonic clock if a later refresh fails.
+                    mainHandler.removeCallbacks(networkTimeRefreshRunnable);
+                    mainHandler.postDelayed(networkTimeRefreshRunnable,
+                            NETWORK_TIME_REFRESH_INTERVAL_MS);
+                } else {
+                    scheduleNetworkTimeRetry();
+                }
+            }
+        }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    }
+
+    private void scheduleNetworkTimeRetry() {
+        if (activityDestroyed || networkTimeAvailable) return;
+        long[] delays = {2000L, 4000L, 8000L, 15000L, 30000L, 60000L};
+        long delay = delays[Math.min(networkTimeRetryAttempt, delays.length - 1)];
+        if (networkTimeRetryAttempt < delays.length - 1) networkTimeRetryAttempt++;
+        mainHandler.removeCallbacks(networkTimeRetryRunnable);
+        mainHandler.postDelayed(networkTimeRetryRunnable, delay);
     }
 
     private void openWeatherApp() {
@@ -762,9 +872,13 @@ public class MainActivity extends Activity {
     }
 
     private void scheduleAppsRetry() {
-        if (activityDestroyed || appLoadRetryAttempt >= 8) return;
+        if (activityDestroyed) return;
+        // PackageManager on older Android TV firmware may not expose all
+        // launcher activities until late in boot. Keep retrying, with a capped
+        // backoff, instead of giving up after the first few seconds.
         long[] delays = {600L, 1200L, 2500L, 5000L, 10000L, 15000L, 20000L, 30000L};
-        long delay = delays[appLoadRetryAttempt++];
+        long delay = delays[Math.min(appLoadRetryAttempt, delays.length - 1)];
+        if (appLoadRetryAttempt < delays.length - 1) appLoadRetryAttempt++;
         mainHandler.removeCallbacks(appLoadRetryRunnable);
         mainHandler.postDelayed(appLoadRetryRunnable, delay);
     }
@@ -1023,8 +1137,18 @@ public class MainActivity extends Activity {
         for (String category : categories) {
             Intent query = new Intent(Intent.ACTION_MAIN);
             query.addCategory(category);
-            List<ResolveInfo> matches = pm.queryIntentActivities(query, 0);
+            List<ResolveInfo> matches;
+            try {
+                matches = pm.queryIntentActivities(query, 0);
+            } catch (RuntimeException packageManagerNotReady) {
+                android.util.Log.w("ApolloLauncher",
+                        "PackageManager is not ready; launcher app scan will retry",
+                        packageManagerNotReady);
+                continue;
+            }
+            if (matches == null) continue;
             for (ResolveInfo resolveInfo : matches) {
+                if (resolveInfo == null || resolveInfo.activityInfo == null) continue;
                 ActivityInfo info = resolveInfo.activityInfo;
                 String packageName = info.packageName;
                 if (packageName.equals(getPackageName()) || hidden.contains(packageName) || !seen.add(packageName)) {
@@ -1098,13 +1222,12 @@ public class MainActivity extends Activity {
 
         if (apps.isEmpty()) {
             scheduleAppsRetry();
+            if (appsRow.getChildCount() == 0 && quickRow.getChildCount() == 0) {
+                selectedTitle.setText(text("Waiting for apps…", "بانتظار التطبيقات…"));
+            }
         } else {
             appLoadRetryAttempt = 0;
             mainHandler.removeCallbacks(appLoadRetryRunnable);
-        }
-        if (appsRow.getChildCount() == 0 && quickRow.getChildCount() == 0
-                && appLoadRetryAttempt >= 8) {
-            selectedTitle.setText(text("No apps found", "لم يتم العثور على تطبيقات"));
         }
         appsScroller.setVisibility(View.VISIBLE);
         quickScroller.setVisibility(View.VISIBLE);
@@ -1773,6 +1896,10 @@ public class MainActivity extends Activity {
             loadApps();
         }
         refreshWeather();
+        if (!networkTimeAvailable) {
+            mainHandler.removeCallbacks(networkTimeRetryRunnable);
+            mainHandler.postDelayed(networkTimeRetryRunnable, 500L);
+        }
         if (appsRow != null && appsRow.getChildCount() == 0) {
             scheduleAppsReload(500L);
         }
