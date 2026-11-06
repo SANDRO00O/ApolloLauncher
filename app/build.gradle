@@ -6,7 +6,7 @@ def releaseKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
 def releaseSigningEnabled = releaseKeystorePath != null && !releaseKeystorePath.trim().isEmpty()
 
 android {
-    namespace 'com.karrar.tvlauncher'
+    namespace 'com.karrar.ApolloLauncher'
     compileSdk 33
 
     lint {
@@ -14,7 +14,7 @@ android {
     }
 
     defaultConfig {
-        applicationId 'com.karrar.tvlauncher'
+        applicationId 'com.karrar.ApolloLauncher'
         minSdk 21
         targetSdk 22
         versionCode = configuredVersionCode

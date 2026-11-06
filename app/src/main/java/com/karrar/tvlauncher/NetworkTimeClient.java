@@ -1,4 +1,4 @@
-package com.karrar.tvlauncher;
+package com.karrar.ApolloLauncher;
 
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;

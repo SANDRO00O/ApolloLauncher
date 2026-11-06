@@ -1,4 +1,4 @@
-package com.karrar.tvlauncher;
+package com.karrar.ApolloLauncher;
 
 import android.content.Context;
 import android.content.SharedPreferences;
